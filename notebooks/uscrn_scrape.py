@@ -102,7 +102,8 @@ def get_station_location(url) -> str:
 
 
 def process_rows(file_urls, row_limit, output_file) -> None:
-  """Processes a batch of rows from a list of URLs to extract weather station data and save it to a CSV file.
+  """
+  Processes a batch of rows from a list of URLs to extract weather station data and save it to a CSV file.
 
   Args:
     file_urls (list): A list of URLs where weather station data can be found.
