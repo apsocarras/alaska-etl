@@ -29,7 +29,7 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 │   ├── docker-compose.yaml   # see install instructions 
 │   ├── dags
 │   │   ├── nws_dag.py        # scrapes/uploads updates from NWS     
-│   │   ├── uscrn_updates.py  # same for USCRN
+│   │   ├── uscrn_dag.py      # same for USCRN
 │   │   └── utils
 │   │       └── utils.py   
 │   └── data
