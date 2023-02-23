@@ -103,10 +103,11 @@ After opening Docker Desktop (or starting docker [via CLI](https://docs.docker.c
 docker compose up airflow-init 
 docker compose up 
 ```
-Lastly, change `bq-config.yaml` to match your project-id.
+Lastly, change `bq-config.yaml` to match your GCP project information
 
 ```yaml
 project-id: <your-project-id>
+credentials: </path/to/your/creds/directory>
 ```
 Be sure to have your Docker container up before running any of the DAGs. The files in `notebooks` do not require the container to be active, however.
 
