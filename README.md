@@ -13,14 +13,14 @@ _This repo contains and builds off my work from a [team project](https://github.
 
 _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba-0df6-42cb-bb90-f23924a0d2c6/)_
 
-### Technologies Used: 
+### _**Technologies Used**_ 
 * Airflow 
 * Google Cloud Platform (BigQuery, Looker Studio)
 * Python (Pandas, Beautiful Soup)
 * SQL
 
-## **Project Structure** 
-```
+## Project Structure 
+```bash
 ├── notebooks
 │   ├── uscrn_scrape.ipynb 
 │   └── uscrn_scrape.py     
@@ -46,13 +46,13 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 
 `./notebooks/uscrn_scrape.py` &nbsp; - &nbsp; Contains a python script to scrape all currently available data from the USCRN database. For a faster download, run this script separately to scrape the main dataset rather than the code in the notebook.
 
-## **Data Sources**
+## Data Sources
 [USCRN Hourly Historical Weather Data](https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/): This page contains hourly weather data from the U.S. Climate Reference Network / U.S. Regional Climate Reference Network (USCRN/USRCRN) stored in text files.
 
 [NWS Forecasts](https://forecast.weather.gov/MapClick.php?lat=60.7506&lon=-160.5006&unit=0&lg=english&FcstType=digital): The National Weather Service has forecast offices in Fairbanks and Anchorage which provide hourly forecasts by coordinate location in AK. These are available in 48-Hour blocks up to four days out, stored in a tabular format. 
   
 
-## **Setup/Installation Requirements**
+## Setup/Installation Requirements
 ```bash 
 # Create and activate virtual environment
 virtualenv -p python3.7 venv 
