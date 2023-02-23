@@ -1,7 +1,6 @@
 import requests
 import pandas as pd 
 import numpy as np
-import yaml 
 import os
 import re
 from datetime import datetime

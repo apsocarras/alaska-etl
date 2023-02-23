@@ -1,5 +1,6 @@
 pandas
 jupyterlab 
+pyyaml
 gcsfs
 fsspec
 google-cloud-storage

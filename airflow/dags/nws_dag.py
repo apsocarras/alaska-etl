@@ -5,7 +5,7 @@ import requests
 import os
 import re
 import os 
-import yaml
+from yaml import full_load
 from bs4 import BeautifulSoup
 # Utilities imports: 
 from utils.utils import getColsFromTable, getDict, nwsURL
@@ -16,17 +16,18 @@ from google.cloud import bigquery
 from google.oauth2 import service_account 
 
 ## ---------- GLOBAL VARIABLES ---------- ## 
-# GCP/BigQuery information
-PROJECT_ID = 'team-week3'
-# DATASET_ID = 'alaska'
-DATASET_ID = 'alaska'
-TABLE_ID = 'nws_forecasts'
 # Path information
 PATH = os.path.abspath(__file__)
 DIR_NAME = os.path.dirname(PATH)
-# URL Links (/data/sources.yaml)
+# GCP/BigQuery information
+with open(f"{DIR_NAME}/data/bq-config.yaml", "r") as fp:
+  bq_config = full_load(fp)
+PROJECT_ID = bq_config['project-id']
+DATASET_ID = 'alaska'
+TABLE_ID = 'uscrn'
+# Data Source URLs 
 with open(f"{DIR_NAME}/data/sources.yaml", "r") as fp:
-  SOURCES = yaml.full_load(fp)
+  SOURCES = full_load(fp)
 
 ## ---------- SET LOGGING ---------- ## 
 import logging
