@@ -21,27 +21,48 @@ columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_tim
 base_url = "https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/"
 
 base_soup = BeautifulSoup(requests.get(base_url).content, "html.parser")
-
-def getFileUrls(): 
-  links = base_soup.find_all("a") # 'links' in this notebook will refer to <a> elements, not urls
+   
+def get_year_urls() -> list: 
+  """
+  Retrieves the URLs for every year's page in the USCRN index.
+  
+  Returns:
+  year_urls (list): A list of URLs for every year's page.
+  """
+  links = base_soup.find_all("a") 
   years = [str(x).zfill(1) for x in range(2000,2024)]
-  year_links = [link for link in links if link['href'].rstrip('/') in years]
+  year_urls = [base_url + link['href'] for link in links if link['href'].rstrip('/') in years]
+  return year_urls
+
+def get_file_urls() -> list: 
+  """
+  Retrieves the URLs for every file contained on each year's page.
+
+  Returns: 
+  file_urls (list): A list of file URLs.
+  """
+  year_urls = get_year_urls()
 
   file_urls = []
-  for year_link in year_links: 
-    year_url = base_url + year_link.get("href")
-    response = requests.get(year_url) 
+  for url in year_urls: 
+    response = requests.get(url) 
     soup = BeautifulSoup(response.content, 'html.parser')
     file_links = soup.find_all('a', href=re.compile(r'AK.*\.txt'))
     if file_links:
-      new_file_urls = [year_url + link.getText() for link in file_links]
+      new_file_urls = [url + link.getText() for link in file_links]
       file_urls.extend(new_file_urls)
   return file_urls
 
-file_urls = getFileUrls()
-
-def transform_dataframe(df):
-
+def transform_dataframe(df) -> pd.DataFrame:
+  """
+  Transforms a Pandas DataFrame created from a list of lists in process_rows().
+    
+  Args:
+  df (pandas.DataFrame): The DataFrame to be transformed.
+  
+  Returns:
+  transformed_df (pandas.DataFrame): The transformed DataFrame.
+  """
   df = df.copy()
   # replace missing value designators
   df.replace([-99999,-9999], np.nan, inplace=True) # Can safely assume these are always missing values in every column they appear in
@@ -64,26 +85,48 @@ def transform_dataframe(df):
 
   return df 
 
-def process_rows(file_urls, row_limit, output_file):
-    
-    # Get rows for current batch
-    rows = []
-    regex = r"([St.]*[A-Z][a-z]+_*[A-Za-z]*).*.txt" 
-    current_idx=0
-    for i, url in enumerate(file_urls[current_idx:]):
-      # Get location from url
-      file_name = re.search(regex, url).group(0)
-      station_location = re.sub("(_formerly_Barrow.*|_[0-9].*)", "", file_name)
-      # Get results, add station location
-      response = requests.get(url)
-      soup = BeautifulSoup(response.content, 'html.parser')
-      soup_lines = [station_location + " " + line for line in str(soup).strip().split("\n")]
-      new_rows = [re.split('\s+', row) for row in soup_lines]
-      # Add to list
-      rows.extend(new_rows)
-      if len(rows) >= row_limit:
-        current_idx=i
-        break
+def get_station_location(url) -> str: 
+  """
+  Extracts the name of the station from a given URL.
+  
+  Args:
+  url (str): The URL to extract the station name from.
+  
+  Returns:
+  station_location (str): The name of the station.
+  """
+  regex = r"([St.]*[A-Z][a-z]+_*[A-Za-z]*).*.txt" 
+  file_name = re.search(regex, url).group(0)
+  station_location = re.sub("(_formerly_Barrow.*|_[0-9].*)", "", file_name)
+  return  station_location
+
+
+def process_rows(file_urls, row_limit, output_file) -> None:
+  """Processes a batch of rows from a list of URLs to extract weather station data and save it to a CSV file.
+
+  Args:
+    file_urls (list): A list of URLs where weather station data can be found.
+    row_limit (int): The maximum number of rows to process per batch.
+    output_file (str): The path to the output CSV file.
+  Returns:
+    None
+  """
+  # Get rows for current batch
+  rows = []
+  current_idx=0
+  for i, url in enumerate(file_urls[current_idx:]):
+    # Get location from url
+    station_location = get_station_location(url)
+    # Get new rows 
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    soup_lines = [station_location + " " + line for line in str(soup).strip().split("\n")]
+    new_rows = [re.split('\s+', row) for row in soup_lines]
+    # Add to list
+    rows.extend(new_rows)
+    if len(rows) >= row_limit:
+      current_idx=i
+      break
 
     # Create dataframe for current batch
     df = pd.DataFrame(rows, columns=columns)
@@ -104,4 +147,4 @@ def process_rows(file_urls, row_limit, output_file):
     else: 
         rows.clear()
 
-process_rows(file_urls=file_urls, row_limit=100000, output_file=output_file)
+process_rows(file_urls=get_file_urls(), row_limit=100000, output_file=output_file)
