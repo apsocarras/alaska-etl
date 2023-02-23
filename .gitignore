@@ -1,0 +1,10 @@
+airflow/data/*.csv
+docker-compose.yaml
+airflow.sh
+logs/
+plugins/
+.env
+venv/
+__pycache__/
+todo.txt
+nws_scrape2.ipynb

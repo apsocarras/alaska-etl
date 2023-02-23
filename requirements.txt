@@ -1,0 +1,12 @@
+pandas
+jupyterlab 
+gcsfs
+fsspec
+google-cloud-storage
+google-cloud-bigquery
+google-auth
+beautifulsoup4
+lxml
+html5lib
+apache-airflow-providers-google
+apache-airflow[google]
