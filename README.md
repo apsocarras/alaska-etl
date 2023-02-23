@@ -21,7 +21,7 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 ├── airflow
 │   ├── airflow.sh
 │   ├── dags
-│   │   ├── nws_dag.py     # scrapes/uploads updates from NWS     
+│   │   ├── nws_dag.py        # scrapes/uploads updates from NWS     
 │   │   ├── uscrn_updates.py  # same for USCRN
 │   │   └── utils
 │   │       └── utils.py   
@@ -29,9 +29,11 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 │   │   ├── nws_updates    
 │   │   ├── uscrn_updates  
 │   │   ├── sources.yaml   # URLs to data sources  
-|   |   └── bq-config.yaml # Name of your BQ project and dataset     
+|   |   └── bq-config.yaml # Name of your BQ project    
 │   └── docker-compose.yaml
 ├── img
+├── .gitignore
+├── requirements.txt
 └── README.md
 ```
 `./notebooks/uscrn_scrape.ipynb` &nbsp;- &nbsp; Explains and contains code to scrape, transform, and upload the main USCRN data as well as supplemental data on column headers and descriptions.  
@@ -39,9 +41,9 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 `./notebooks/uscrn_scrape.py` &nbsp; - &nbsp; Contains a python script to scrape all currently available data from the USCRN database. For a faster download, run this script separately to scrape the main dataset rather than the code in the notebook.
 
 ## **Data Sources**
-[USCRN Hourly Historical Weather Data](https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/): This page contains hourly weather data from the U.S. Climate Reference Network / U.S. Regional Climate Reference Network (USCRN/USRCRN) stored in text files:
+[USCRN Hourly Historical Weather Data](https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/): This page contains hourly weather data from the U.S. Climate Reference Network / U.S. Regional Climate Reference Network (USCRN/USRCRN) stored in text files.
 
-[NWS Forecasts](https://forecast.weather.gov/MapClick.php?lat=60.7506&lon=-160.5006&unit=0&lg=english&FcstType=digital): The National Weather Service has forecast offices in Fairbanks and Anchorage which provide hourly forecasts by coordinate location in AK. These are available in 48-Hour blocks up to four days out, stored in a tabular format: 
+[NWS Forecasts](https://forecast.weather.gov/MapClick.php?lat=60.7506&lon=-160.5006&unit=0&lg=english&FcstType=digital): The National Weather Service has forecast offices in Fairbanks and Anchorage which provide hourly forecasts by coordinate location in AK. These are available in 48-Hour blocks up to four days out, stored in a tabular format. 
   
 
 ## **Setup/Installation Requirements**
@@ -100,7 +102,7 @@ Lastly, change `bq-config.yaml` to match your project-id.
 ```yaml
 project-id: <your-project-id>
 ```
-Be sure to have your docker container up before running any of the DAGs. The files in `notebooks` do not require the container to be active, however.
+Be sure to have your Docker container up before running any of the DAGs. The files in `notebooks` do not require the container to be active, however.
 
 ## Known Bugs
 
