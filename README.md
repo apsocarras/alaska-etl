@@ -13,24 +13,30 @@ _This repo contains and builds off my work from a [team project](https://github.
 
 _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba-0df6-42cb-bb90-f23924a0d2c6/)_
 
+### Technologies Used: 
+* Airflow 
+* Google Cloud Platform (BigQuery, Looker Studio)
+* Python (Pandas, Beautiful Soup)
+* SQL
+
 ## **Project Structure** 
 ```
 ├── notebooks
 │   ├── uscrn_scrape.ipynb 
 │   └── uscrn_scrape.py     
 ├── airflow
-│   ├── airflow.sh
+│   ├── airflow.sh            # see install instructions 
+│   ├── docker-compose.yaml   # see install instructions 
 │   ├── dags
 │   │   ├── nws_dag.py        # scrapes/uploads updates from NWS     
 │   │   ├── uscrn_updates.py  # same for USCRN
 │   │   └── utils
 │   │       └── utils.py   
-│   ├── data
-│   │   ├── nws_updates    
-│   │   ├── uscrn_updates  
-│   │   ├── sources.yaml   # URLs to data sources  
-|   |   └── bq-config.yaml # Name of your BQ project    
-│   └── docker-compose.yaml
+│   └── data
+│       ├── nws_updates    
+│       ├── uscrn_updates  
+│       ├── sources.yaml   # URLs to data sources  
+│       └── bq-config.yaml # Name of your BQ project    
 ├── img
 ├── .gitignore
 ├── requirements.txt
