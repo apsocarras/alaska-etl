@@ -35,8 +35,8 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 │   └── data
 │       ├── nws_updates    
 │       ├── uscrn_updates  
-│       ├── sources.yaml   # URLs to data sources  
-│       └── bq-config.yaml # Name of your BQ project    
+│       ├── sources.yaml      # URLs to data sources  
+│       └── bq-config.yaml    # Name of your BQ project    
 ├── img
 ├── .gitignore
 ├── requirements.txt
