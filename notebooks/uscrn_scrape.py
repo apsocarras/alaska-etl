@@ -7,7 +7,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 
-output_file = "/home/alex/deb-projects/team-week3/alex-work/airflow/data/uscrn.csv"
+output_file = "/home/alex/portfolio/projects/alaska-etl/airflow/data/uscrn.csv"
 
 if os.path.isfile(output_file):
   raise Exception("Warning: uscrn.csv file already exists in ../airflow/data/")
@@ -100,7 +100,6 @@ def get_station_location(url) -> str:
   station_location = re.sub("(_formerly_Barrow.*|_[0-9].*)", "", file_name)
   return  station_location
 
-
 def process_rows(file_urls, row_limit, output_file) -> None:
   """
   Processes a batch of rows from a list of URLs to extract weather station data and save it to a CSV file.
@@ -147,5 +146,6 @@ def process_rows(file_urls, row_limit, output_file) -> None:
         process_rows(remaining_urls, row_limit, output_file)
     else: 
         rows.clear()
+
 
 process_rows(file_urls=get_file_urls(), row_limit=100000, output_file=output_file)

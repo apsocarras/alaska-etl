@@ -1,2 +1,3 @@
-project-id: team-week3
-credentials: /home/alex/.creds/alex-sa-tw3.json
+project-id: alaska-scrape
+dataset-id: weather 
+credentials: /home/alex/.creds/ak-scrape-sa.json
