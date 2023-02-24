@@ -24,19 +24,24 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 ├── notebooks
 │   ├── uscrn_scrape.ipynb 
 │   └── uscrn_scrape.py     
-├── airflow
-│   ├── airflow.sh            # see install instructions 
-│   ├── docker-compose.yaml   # see install instructions 
-│   ├── dags
-│   │   ├── nws_dag.py        # scrapes/uploads updates from NWS     
-│   │   ├── uscrn_dag.py      # same for USCRN
-│   │   └── utils
-│   │       └── utils.py   
-│   └── data
-│       ├── nws_updates    
-│       ├── uscrn_updates  
-│       ├── sources.yaml      # URLs to data sources  
-│       └── bq-config.yaml    # Name of your BQ project    
+├── cloud_functions
+│   ├── nws_updates_cf.py
+│   ├── uscrn_initial_cf.py
+│   └── uscrn_updates_cf.py
+├── airflow                   # see install instructions
+│   ├── airflow.sh            
+│   ├── docker-compose.yaml    
+│   └── dags
+│       ├── nws_dag.py        # scrapes/uploads updates from NWS     
+│       ├── uscrn_dag.py      # same for USCRN
+│       └── utils
+│           └── utils.py   
+├── data
+│   ├── nws_updates    
+│   └── uscrn_updates  
+├── config
+│   ├── sources.yaml          # URLs to data sources
+│   └── bq-config.yaml        # Set BQ project, dataset, credentials
 ├── img
 ├── .gitignore
 ├── requirements.txt
@@ -85,8 +90,7 @@ echo -e "AIRFLOW_UID=$(id -u)\nAIRFLOW_GID=0" > .env
 curl -LfO 'https://airflow.apache.org/docs/apache-airflow/2.3.2/airflow.sh'
 
 ```
-Prior to initializing Airflow in Docker, you will need to [create a project](https://cloud.google.com/resource-manager/docs/creating-managing-projects) and an associated [service account](https://cloud.google.com/iam/docs/creating-managing-service-accounts) in BigQuery. After downloading the account's credential file, you can configure your `docker-compose.yaml` to connect to BigQuery. 
-
+Prior to initializing Airflow in Docker, you will need to [create a project](https://cloud.google.com/resource-manager/docs/creating-managing-projects) and an associated [service account](https://cloud.google.com/iam/docs/creating-managing-service-accounts) in BigQuery. After downloading the account's credential file, you can configure `docker-compose.yaml` to mount your directories and connect to BigQuery:
 ```yaml 
   GOOGLE_APPLICATION_CREDENTIALS: /google_creds/<name-of-your-creds-file>.json
 volumes:
@@ -94,6 +98,7 @@ volumes:
   - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
   - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
   - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
+  - ${AIRFLOW_PROJ_DIR:-.}:/opt/airflow/repo
   - </path/to/your/creds/directory>:/google_creds
 ```
 After opening Docker Desktop (or starting docker [via CLI](https://docs.docker.com/config/daemon/start/)): 
