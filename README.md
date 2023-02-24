@@ -29,12 +29,13 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 │       ├── nws_dag.py        # scrapes/uploads updates from NWS     
 │       └── uscrn_dag.py      # same for USCRN
 ├── config
-│   ├── sources.yaml          # URLs to data sources
-│   └── bq-config.yaml        # Set BQ project, dataset, credentials
+│   ├── bq-config.yaml        # Set BQ project, dataset, credentials
+│   └── sources.yaml          # URLs to data sources
+│ 
 ├── data
 │   ├── nws_updates    
 │   └── uscrn_updates  
-├── gcf
+├── gcf                       # for google cloud functions 
 │   ├── nws_updates_cf.py
 │   ├── uscrn_initial_cf.py
 │   └── uscrn_updates_cf.py  
