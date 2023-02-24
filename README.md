@@ -15,37 +15,35 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 
 ### _**Technologies Used**_ 
 * Airflow 
-* Google Cloud Platform (BigQuery, Looker Studio)
+* Google Cloud Platform 
+  * BigQuery, Cloud Functions, Cloud Scheduler, Looker Studio
 * Python (Pandas, Beautiful Soup)
 * SQL
 
 ## Project Structure 
 ```bash
-├── notebooks
-│   ├── uscrn_scrape.ipynb 
-│   └── uscrn_scrape.py     
-├── cloud_functions
-│   ├── nws_updates_cf.py
-│   ├── uscrn_initial_cf.py
-│   └── uscrn_updates_cf.py
-├── airflow                   # see install instructions
-│   ├── airflow.sh            
-│   ├── docker-compose.yaml    
+├── airflow                   
 │   └── dags
+│       ├── utils
+│       │    └── utils.py 
 │       ├── nws_dag.py        # scrapes/uploads updates from NWS     
-│       ├── uscrn_dag.py      # same for USCRN
-│       └── utils
-│           └── utils.py   
-├── data
-│   ├── nws_updates    
-│   └── uscrn_updates  
+│       └── uscrn_dag.py      # same for USCRN
 ├── config
 │   ├── sources.yaml          # URLs to data sources
 │   └── bq-config.yaml        # Set BQ project, dataset, credentials
+├── data
+│   ├── nws_updates    
+│   └── uscrn_updates  
+├── gcf
+│   ├── nws_updates_cf.py
+│   ├── uscrn_initial_cf.py
+│   └── uscrn_updates_cf.py  
 ├── img
-├── .gitignore
-├── requirements.txt
-└── README.md
+├── notebooks
+│   ├── uscrn_scrape.ipynb 
+│   └── uscrn_scrape.py     
+├── README.md
+└── requirements.txt
 ```
 `./notebooks/uscrn_scrape.ipynb` &nbsp;- &nbsp; Explains and contains code to scrape, transform, and upload the main USCRN data as well as supplemental data on column headers and descriptions.  
 
@@ -97,7 +95,6 @@ volumes:
   - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
   - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
   - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-  - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
   - ${AIRFLOW_PROJ_DIR:-.}:/opt/airflow/repo
   - </path/to/your/creds/directory>:/google_creds
 ```
