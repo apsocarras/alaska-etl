@@ -7,10 +7,10 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 
-output_file = "/home/alex/portfolio/projects/alaska-etl/airflow/data/uscrn.csv"
+output_file = "/home/alex/portfolio/projects/alaska-etl/data/uscrn.csv"
 
 if os.path.isfile(output_file):
-  raise Exception("Warning: uscrn.csv file already exists in ../airflow/data/")
+  raise Exception("Warning: data/uscrn.csv already exists")
 
 columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_time','crx_vn','longitude','latitude',
 't_calc','t_hr_avg','t_max','t_min','p_calc','solarad','solarad_flag','solarad_max','solarad_max_flag','solarad_min',

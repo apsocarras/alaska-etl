@@ -1,4 +1,4 @@
-airflow/data/*.csv
+data/*.csv
 docker-compose.yaml
 airflow.sh
 logs/
