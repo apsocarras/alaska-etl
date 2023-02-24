@@ -8,7 +8,7 @@ import os
 from yaml import full_load
 from bs4 import BeautifulSoup
 # Utilities imports: 
-from utils.utils import getColsFromTable, getDict, nwsURL
+from utils.utils import  nws_url, get_table, table_to_dict
 # Airflow imports: 
 from airflow.decorators import dag, task
 # GCP imports: 
@@ -35,7 +35,7 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-handler = logging.FileHandler(f'/opt/airflow/logs/nws_dag_logs.txt')
+handler = logging.FileHandler(f'{DIR_NAME}/logs/nws_dag_logs.txt')
 handler.setLevel(logging.INFO)
 
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -47,27 +47,25 @@ logger.addHandler(handler)
 
 ## ---------- DEFINING TASKS ---------- ## 
 @task 
-def getForecast():
+def getForecast() -> dict:
   """Get dictionary of forecast data for next 48 hours from various points in Alaska"""
-  locations = pd.read_csv(f"{DIR_NAME}/data/locations.csv")
-  nws_urls = locations.apply(nwsURL, axis=1)
+  locations = pd.read_csv(f"{DIR_NAME}/../data/locations.csv")
+  nws_urls = locations.apply(nws_url, axis=1)
   loc_dict = dict(zip(locations['station_location'], nws_urls))
 
-  col_list = []
+  combined_table = []
   for location, url in loc_dict.items():
     result = requests.get(url)
     soup = BeautifulSoup(result.content, "html.parser")
-    table48 = soup.find_all("table")[5].find_all("tr") # list of <tr> elements from main data table (really two tables combined: one for each day in next 48h period)
-    colspan = table48[0]  # divided into two tables by two colspan elements
-    table48 = [tr for  tr in table48 if tr != colspan] # remove colspan elements
+    tr_list = soup.find_all("table")[5].find_all("tr") # records from two "landscaped-oriented" data tables are contained in one <table> element
 
-    cols = getColsFromTable(table48,location)    
-    col_list.extend(cols)
+    table = get_table(tr_list, location)   
+    combined_table.extend(table)
   
-  return getDict(col_list)
+  return table_to_dict(combined_table)
 
 @task
-def transformDF(myDict): 
+def transformDF(myDict) -> None: 
   """Cast dictionary from getForecast() to a dataframe, transform, and write (append) to .csv"""
   df = pd.DataFrame(myDict)
   df.columns = [col.lower() for col in df.columns] 
@@ -83,8 +81,8 @@ def transformDF(myDict):
   df['utc_datetime'] = df['lst_datetime'] + akst_offset
 
   # reorder columns 
-  cols = ['location','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
-  df = df[cols]
+  col_names = ['location','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
+  df = df[col_names]
 
   # timestamp column: track when forecast was accessed -- DAG will run every 48 hours
   df['date_added_utc'] = datetime.utcnow()
