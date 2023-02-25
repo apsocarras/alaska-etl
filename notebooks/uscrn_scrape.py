@@ -7,21 +7,6 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 
-output_file = "/home/alex/portfolio/projects/alaska-etl/data/uscrn.csv"
-
-if os.path.isfile(output_file):
-  raise Exception("Warning: data/uscrn.csv already exists")
-
-columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_time','crx_vn','longitude','latitude',
-'t_calc','t_hr_avg','t_max','t_min','p_calc','solarad','solarad_flag','solarad_max','solarad_max_flag','solarad_min',
-'solarad_min_flag','sur_temp_type','sur_temp','sur_temp_flag','sur_temp_max','sur_temp_max_flag','sur_temp_min',
-'sur_temp_min_flag','rh_hr_avg','rh_hr_avg_flag','soil_moisture_5','soil_moisture_10','soil_moisture_20',
-'soil_moisture_50','soil_moisture_100','soil_temp_5','soil_temp_10','soil_temp_20','soil_temp_50','soil_temp_100']
-
-base_url = "https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/"
-
-base_soup = BeautifulSoup(requests.get(base_url).content, "html.parser")
-   
 def get_year_urls() -> list: 
   """
   Retrieves the URLs for every year's page in the USCRN index.
@@ -29,9 +14,15 @@ def get_year_urls() -> list:
   Returns:
   year_urls (list): A list of URLs for every year's page.
   """
-  links = base_soup.find_all("a") 
+
+  url = "https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/"
+  response = requests.get(url)
+  soup = BeautifulSoup(response.content, "html.parser")
+
+
+  links = soup.find_all("a") 
   years = [str(x).zfill(1) for x in range(2000,2024)]
-  year_urls = [base_url + link['href'] for link in links if link['href'].rstrip('/') in years]
+  year_urls = [url + link['href'] for link in links if link['href'].rstrip('/') in years]
   return year_urls
 
 def get_file_urls() -> list: 
@@ -111,6 +102,14 @@ def process_rows(file_urls, row_limit, output_file) -> None:
   Returns:
     None
   """
+
+  # Define column names for dataframes
+  columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_time','crx_vn','longitude','latitude',
+  't_calc','t_hr_avg','t_max','t_min','p_calc','solarad','solarad_flag','solarad_max','solarad_max_flag','solarad_min',
+  'solarad_min_flag','sur_temp_type','sur_temp','sur_temp_flag','sur_temp_max','sur_temp_max_flag','sur_temp_min',
+  'sur_temp_min_flag','rh_hr_avg','rh_hr_avg_flag','soil_moisture_5','soil_moisture_10','soil_moisture_20',
+  'soil_moisture_50','soil_moisture_100','soil_temp_5','soil_temp_10','soil_temp_20','soil_temp_50','soil_temp_100']
+
   # Get rows for current batch
   rows = []
   current_idx=0
@@ -140,12 +139,19 @@ def process_rows(file_urls, row_limit, output_file) -> None:
     else:
       with open(output_file, "w") as fp:
         df.to_csv(fp, index=False)
+    
+    # Recursively process remaining rows     
     if len(rows) >= row_limit:
-        # Recursively process remaining rows
         remaining_urls = file_urls[current_idx:]
         process_rows(remaining_urls, row_limit, output_file)
     else: 
-        rows.clear()
+        return 
 
+if __name__ == "__main__":
 
-process_rows(file_urls=get_file_urls(), row_limit=100000, output_file=output_file)
+  output_file = "../data/uscrn.csv"
+
+  if os.path.isfile(output_file):
+    raise Exception(f"{output_file} already exists")
+
+  process_rows(file_urls=get_file_urls(), row_limit=100000, output_file=output_file)
