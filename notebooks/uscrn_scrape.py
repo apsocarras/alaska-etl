@@ -55,10 +55,13 @@ def transform_dataframe(df) -> pd.DataFrame:
   transformed_df (pandas.DataFrame): The transformed DataFrame.
   """
   df = df.copy()
+
   # replace missing value designators
-  df.replace([-99999,-9999], np.nan, inplace=True) # Can safely assume these are always missing values in every column they appear in
-  df = df.filter(regex="^((?!soil).)*$") # vast majority of soil columns have missing data
+  df.replace([-99999,-9999], np.nan, inplace=True) 
   df.replace({'crx_vn':{-9:np.nan}}, inplace=True)
+
+  # Drop soil columns -- vast majority have missing data 
+  df = df.filter(regex="^((?!soil).)*$")
 
   # convert to datetimes
   df['utc_datetime'] = pd.to_datetime(df['utc_date'].astype(int).astype(str) + df['utc_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
@@ -102,14 +105,6 @@ def process_rows(file_urls, row_limit, output_file) -> None:
   Returns:
     None
   """
-
-  # Define column names for dataframes
-  columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_time','crx_vn','longitude','latitude',
-  't_calc','t_hr_avg','t_max','t_min','p_calc','solarad','solarad_flag','solarad_max','solarad_max_flag','solarad_min',
-  'solarad_min_flag','sur_temp_type','sur_temp','sur_temp_flag','sur_temp_max','sur_temp_max_flag','sur_temp_min',
-  'sur_temp_min_flag','rh_hr_avg','rh_hr_avg_flag','soil_moisture_5','soil_moisture_10','soil_moisture_20',
-  'soil_moisture_50','soil_moisture_100','soil_temp_5','soil_temp_10','soil_temp_20','soil_temp_50','soil_temp_100']
-
   # Get rows for current batch
   rows = []
   current_idx=0
@@ -127,25 +122,32 @@ def process_rows(file_urls, row_limit, output_file) -> None:
       current_idx=i
       break
 
-    # Create dataframe for current batch
-    df = pd.DataFrame(rows, columns=columns)
+  # Define column names
+  columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_time','crx_vn','longitude','latitude',
+  't_calc','t_hr_avg','t_max','t_min','p_calc','solarad','solarad_flag','solarad_max','solarad_max_flag','solarad_min',
+  'solarad_min_flag','sur_temp_type','sur_temp','sur_temp_flag','sur_temp_max','sur_temp_max_flag','sur_temp_min',
+  'sur_temp_min_flag','rh_hr_avg','rh_hr_avg_flag','soil_moisture_5','soil_moisture_10','soil_moisture_20',
+  'soil_moisture_50','soil_moisture_100','soil_temp_5','soil_temp_10','soil_temp_20','soil_temp_50','soil_temp_100']
+  
+  # Create dataframe for current batch
+  df = pd.DataFrame(rows, columns=columns)
 
-    # Transform dataframe
-    df = transform_dataframe(df)
+  # Transform dataframe
+  df = transform_dataframe(df)
 
-    # Write dataframe to CSV
-    if os.path.isfile(output_file):
-        df.to_csv(output_file, mode='a', header=False, index=False)
-    else:
-      with open(output_file, "w") as fp:
-        df.to_csv(fp, index=False)
-    
-    # Recursively process remaining rows     
-    if len(rows) >= row_limit:
-        remaining_urls = file_urls[current_idx:]
-        process_rows(remaining_urls, row_limit, output_file)
-    else: 
-        return 
+  # Write dataframe to CSV
+  if os.path.isfile(output_file):
+      df.to_csv(output_file, mode='a', header=False, index=False)
+  else:
+    with open(output_file, "w") as fp:
+      df.to_csv(fp, index=False)
+  
+  # Recursively process remaining rows     
+  if len(rows) >= row_limit:
+      remaining_urls = file_urls[current_idx:]
+      process_rows(remaining_urls, row_limit, output_file)
+  else: 
+      return 
 
 if __name__ == "__main__":
 
