@@ -37,7 +37,6 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 │   └── uscrn_updates  
 ├── gcf                       # for google cloud functions 
 │   ├── nws_updates_cf.py
-│   ├── uscrn_initial_cf.py
 │   └── uscrn_updates_cf.py  
 ├── img
 ├── notebooks
