@@ -168,7 +168,7 @@ def load_data_to_bq() -> None:
       raise Exception(error_message) 
 
     # Log result 
-    table = client.extract_table_data(full_table_id)
+    table = client.get_table(full_table_id)
     print(f"Loaded {table.num_rows} rows and {table.schema} columns")
 
 @dag(
