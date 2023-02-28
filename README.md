@@ -7,7 +7,11 @@
 
 ETL webcraping pipeline to compare NWS forecasts against data gathered by the US Climate Research Council (USCRN) throughout Alaska.
 
-_This repo contains and builds off my work from a [team project](https://github.com/apsocarras/team-week3) at [Epicodus](https://www.epicodus.com/)._
+### Live [Kaggle Dataset]()
+
+![kaggle-dataset-thumbnail]()
+
+### Live [Dashboard]()
 
 ![dashboard](img/alaska.gif)
 
@@ -19,7 +23,7 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
   * BigQuery, Cloud Functions, Cloud Scheduler, Looker Studio
 * Python (Pandas, Beautiful Soup)
 * SQL
-
+  
 ## Project Structure 
 ```bash
 ├── airflow                   
@@ -29,7 +33,7 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 │       ├── nws_dag.py        # scrapes/uploads updates from NWS     
 │       └── uscrn_dag.py      # same for USCRN
 ├── config
-│   ├── bq-config.yaml        # Set BQ project, dataset, credentials
+│   ├── gcp-config.yaml        # Set BQ project, dataset, credentials
 │   └── sources.yaml          # URLs to data sources
 │ 
 ├── data
@@ -40,14 +44,13 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 │   └── uscrn_updates_cf.py  
 ├── img
 ├── notebooks
-│   ├── uscrn_scrape.ipynb 
-│   └── uscrn_scrape.py     
+│   ├── 1_1_uscrn_scrape.ipynb 
+│   1_1_uscrn_scrape.ipynb 
+│   └── uscrn_scrape.py         
 ├── README.md
 └── requirements.txt
 ```
-`./notebooks/uscrn_scrape.ipynb` &nbsp;- &nbsp; Explains and contains code to scrape, transform, and upload the main USCRN data as well as supplemental data on column headers and descriptions.  
-
-`./notebooks/uscrn_scrape.py` &nbsp; - &nbsp; Contains a python script to scrape all currently available data from the USCRN database. For a faster download, run this script separately to scrape the main dataset rather than the code in the notebook.
+`./notebooks/1_uscrn_scrape.ipynb` &nbsp;- &nbsp; Explains and contains code to scrape, transform, save, and upload the main USCRN data as well as supplemental data on column headers and descriptions.  `uscrn_scrape.py` is a helper script to scrape, transform, and download the (very large) main dataset. 
 
 ## Data Sources
 [USCRN Hourly Historical Weather Data](https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/): This page contains hourly weather data from the U.S. Climate Reference Network / U.S. Regional Climate Reference Network (USCRN/USRCRN) stored in text files.
@@ -56,6 +59,9 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
   
 
 ## Setup/Installation Requirements
+
+These instructions are for setting up Airflow to work with the scripts in `airflow/dags/`. If you'd prefer to try out the Google Cloud Functions in `gcf/`, follow the instructions in `gcf/setup.md`.
+
 ```bash 
 # Create and activate virtual environment
 virtualenv -p python3.7 venv 
@@ -105,7 +111,7 @@ After opening Docker Desktop (or starting docker [via CLI](https://docs.docker.c
 docker compose up airflow-init 
 docker compose up 
 ```
-Lastly, change `bq-config.yaml` to match your GCP project information
+Lastly, change `gcp-config.yaml` to match your GCP project information
 
 ```yaml
 project-id: <your-project-id>
@@ -119,6 +125,8 @@ Be sure to have your Docker container up before running any of the DAGs. The fil
 
 
 ## License
+
+_This repo contains and builds off my work from a [team project](https://github.com/apsocarras/team-week3) at [Epicodus](https://www.epicodus.com/). No work from my teammates has been included here (modified or unmodified)._
 
 MIT License
 

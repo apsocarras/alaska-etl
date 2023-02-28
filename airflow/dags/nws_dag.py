@@ -20,11 +20,11 @@ from google.oauth2 import service_account
 PATH = os.path.abspath(__file__)
 DIR_NAME = os.path.dirname(PATH)
 # GCP/BigQuery information
-with open(f"{DIR_NAME}/../config/bq-config.yaml", "r") as fp:
-  bq_config = full_load(fp)
-PROJECT_ID = bq_config['project-id']
-DATASET_ID = bq_config['dataset-id']
-TABLE_ID = 'uscrn'
+with open(f"{DIR_NAME}/../config/gcp-config.yaml", "r") as fp:
+  gcp_config = full_load(fp)
+PROJECT_ID = gcp_config['project-id']
+DATASET_ID = gcp_config['dataset-id']
+TABLE_ID = 'nws'
 # Data Source URLs 
 with open(f"{DIR_NAME}/../config/sources.yaml", "r") as fp:
   SOURCES = full_load(fp)
@@ -47,7 +47,7 @@ logger.addHandler(handler)
 
 ## ---------- DEFINING TASKS ---------- ## 
 @task 
-def getForecast() -> dict:
+def get_forecast() -> dict:
   """Get dictionary of forecast data for next 48 hours from various points in Alaska"""
   locations = pd.read_csv(f"{DIR_NAME}/../data/locations.csv")
   nws_urls = locations.apply(nws_url, axis=1)
@@ -65,8 +65,8 @@ def getForecast() -> dict:
   return table_to_dict(combined_table)
 
 @task
-def transformDF(myDict) -> None: 
-  """Cast dictionary from getForecast() to a dataframe, transform, and write (append) to .csv"""
+def transform_df(myDict) -> None: 
+  """Cast dictionary from get_forecast() to a dataframe, transform, and write (append) to .csv"""
   df = pd.DataFrame(myDict)
   df.columns = [col.lower() for col in df.columns] 
   df.replace({'':np.NaN, '--':np.NaN}, inplace=True)
@@ -179,8 +179,8 @@ def load_data_to_bq() -> None:
    is_paused_upon_creation=True,
 )
 def nws_dag():
-    t1 = getForecast()
-    t2 = transformDF(t1)
+    t1 = get_forecast()
+    t2 = transform_df(t1)
     t3 = load_data_to_bq()
 
     t1 >> t2 >> t3

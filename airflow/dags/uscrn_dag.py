@@ -21,10 +21,10 @@ from google.oauth2 import service_account
 PATH = os.path.abspath(__file__)
 DIR_NAME = os.path.dirname(PATH)
 # GCP/BigQuery information
-with open(f"{DIR_NAME}/../config/bq-config.yaml", "r") as fp:
-  bq_config = full_load(fp)
-PROJECT_ID = bq_config['project-id']
-DATASET_ID = bq_config['dataset-id']
+with open(f"{DIR_NAME}/../config/gcp-config.yaml", "r") as fp:
+  gcp_config = full_load(fp)
+PROJECT_ID = gcp_config['project-id']
+DATASET_ID = gcp_config['dataset-id']
 TABLE_ID = 'uscrn'
 # Data Source URLs
 with open(f"{DIR_NAME}/../config/sources.yaml", "r") as fp:
@@ -108,7 +108,7 @@ def getUpdates(new_file_urls:list) -> list:
   return rows
 
 @task
-def transformDF(rows:list, ti=None): 
+def transform_df(rows:list, ti=None): 
   """Read rows from getUpdates(), cast to dataframe, transform, write to csv"""
   
   # Get column headers 
@@ -262,7 +262,7 @@ def uscrn_dag():
     t1 = lastAdded()
     t2 = getNewFileURLs(t1)
     t3 = getUpdates(t2)
-    t4 = transformDF(t3)
+    t4 = transform_df(t3)
     t5 = uploadBQ()
     t6 = appendLocal()
 
