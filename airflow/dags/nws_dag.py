@@ -8,7 +8,7 @@ import os
 from yaml import full_load
 from bs4 import BeautifulSoup
 # Utilities imports: 
-from utils.utils import  nws_url, get_table, table_to_dict
+from utils.utils import  get_nws_url, extract_table_data, transpose_as_dict
 # Airflow imports: 
 from airflow.decorators import dag, task
 # GCP imports: 
@@ -50,7 +50,7 @@ logger.addHandler(handler)
 def get_forecast() -> dict:
   """Get dictionary of forecast data for next 48 hours from various points in Alaska"""
   locations = pd.read_csv(f"{DIR_NAME}/../data/locations.csv")
-  nws_urls = locations.apply(nws_url, axis=1)
+  nws_urls = locations.apply(get_nws_url, axis=1)
   loc_dict = dict(zip(locations['station_location'], nws_urls))
 
   combined_table = []
@@ -59,10 +59,10 @@ def get_forecast() -> dict:
     soup = BeautifulSoup(result.content, "html.parser")
     tr_list = soup.find_all("table")[5].find_all("tr") # records from two "landscaped-oriented" data tables are contained in one <table> element
 
-    table = get_table(tr_list, location)   
+    table = extract_table_data(tr_list, location)   
     combined_table.extend(table)
   
-  return table_to_dict(combined_table)
+  return transpose_as_dict(combined_table)
 
 @task
 def transform_df(myDict) -> None: 
@@ -168,7 +168,7 @@ def load_data_to_bq() -> None:
       raise Exception(error_message) 
 
     # Log result 
-    table = client.get_table(full_table_id)
+    table = client.extract_table_data(full_table_id)
     print(f"Loaded {table.num_rows} rows and {table.schema} columns")
 
 @dag(
