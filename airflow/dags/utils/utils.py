@@ -1,57 +1,58 @@
 import pandas as pd 
+import requests
+import itertools
+import datetime as dt
+import re
+from bs4 import BeautifulSoup
+
   
 ## ----- NWS_DAG UTILS ----- ## 
+## General Utilities 
+def get_soup(url:str) -> BeautifulSoup:
+  """Simple wrapper for getting beautiful soup object from url"""
+  result = requests.get(url)
+  return BeautifulSoup(result.content, "html.parser") 
 
-def get_nws_url(row:pd.Series) -> str:
-  """
-  Construct NWS forecast url from latitude and longitude columns in locations dataframe
-  
-  Args: 
-  row (pd.Series): The current row of the dataframe
-
-  Returns: 
-  url (str): The url for the NWS 48 hour forecast for the given coordinates 
-  """
-  url = f"https://forecast.weather.gov/MapClick.php?lat={row['latitude']}&lon={row['longitude']}&unit=0&lg=english&FcstType=digital&menu=1"
-  return url
+def flatten(ls:list): 
+  """Flattens/unnests a list of lists by one layer"""
+  return list(itertools.chain.from_iterable(ls)) 
 
 def _ff_list(ls:list) -> list:
-  """
-  Forward fill the values in the list associated with "data_map['Date']" in get_dict() 
-  
-  Args: 
-  ls (list): The list of dates associated with the 'Date' key in the data_map dictionary
-
-  Returns: 
-  ls (list): The same list but with its values forward-filled  
-  """
+  """Forward fill the values in a list"""
   for i in range(len(ls)):
     if not ls[i] and i > 0:
         ls[i] = ls[i-1]
   return ls
 
-def extract_table_data(tr_list:list, location:str) -> list:
+## Specific Utilities
+def get_nws_url(row:pd.Series) -> str:
   """
-  Extracts data from a list of <tr> elements and returns a table (as a list of lists)  
+  Get url for the next 48 hours of forecasts from latitude and longitude columns
   
   Args: 
-  tr_list (list): List of <tr> elements containing NWS forecast data
+  row (pd.Series): The current row of the dataframe
 
-  location (str): The name of the place the forecast is for; used for filling out added "location" column 
-
-  Returns:
-  table (list): List of lists containing
-  
+  Returns: 
+  url (str): The url for the next 48 hours of forecasts
   """
-  colspan = tr_list[0] # tables are stacked vertically and divided by two colspan elements
-  table = [tr for  tr in tr_list if tr != colspan] # vertically concat tables by removing colspan elements
+  lat, lon = row["latitude"], row["longitude"]
+  url = f"https://forecast.weather.gov/MapClick.php?w0=t&w1=td&w2=wc&w3=sfcwind&w3u=1&w4=sky&w5=pop&w6=rh&w7=rain&w8=thunder&w9=snow&w10=fzg&w11=sleet&w12=fog&AheadHour=0&Submit=Submit&FcstType=digital&textField1={lat}&textField2={lon}&site=all&unit=0&dd=&bw=&menu=1"
+  return url
 
-  table = [[ele.getText() for ele in tr.find_all("font")] for tr in table] 
-  location_col = ['location'] # name of location column 
-  location_col.extend([location]*24) # fill out to match length of other columns
-  table.insert(1, location_col)  # for first half of table
-  table.insert(19, location_col) # for second half of table
-  return table
+def get_last_update(soup:BeautifulSoup) -> dt.datetime:
+  """
+  Find the "Last Updated" value from a BeautifulSoup object, transform to a datetime in AKST
+
+  Args:
+  soup (BeautifulSoup): A Beautiful Soup representation of a particular NWS forecast page
+
+  Returns: 
+  last_update_dt (datetime): Datetime representation of time page was last updated (AKST)
+  """
+  last_update_tag = soup.find('td', string=lambda text: text and 'Last Update:' in text)
+  last_update_text = re.sub("Last Update: |\s(?=pm|am)|AKST |,", "", last_update_tag.getText())
+  last_update_dt = dt.datetime.strptime(last_update_text, "%I:%M%p %b %d %Y")
+  return last_update_dt
 
 def transpose_as_dict(table:list) -> dict:
   """
@@ -62,7 +63,6 @@ def transpose_as_dict(table:list) -> dict:
 
   Returns: 
   data_map (dict): Dictionary representation of table, transposed and ready to be made into a dataframe
-  
   """
   data_map = {}
   for col in table: # Table is still "landscape-oriented"
@@ -70,15 +70,42 @@ def transpose_as_dict(table:list) -> dict:
       data_map[col[0]] = col[1:]
     else: # cols from second half
       data_map[col[0]].extend(col[1:])
+
   data_map['Date'] = _ff_list(data_map['Date'])
+
   return data_map
 
-  ## ----- USCRN_DAG UTILS ----- ## 
+def extract_table_data(soup:BeautifulSoup, location:str) -> list:
+  """
+  Extracts 48hr forecast table data from a Beautiful Soup object as a list of lists
+
+  Args: 
+  table_records (list): List of <tr> elements containing NWS forecast data
+
+  location (str): The name of the place the forecast is for; used for filling out added "location" column 
+
+  Returns:
+  table (list): List of lists containing table data 
+  """
+  table_records = soup.find_all("table")[5].find_all("tr")
+
+  colspan = table_records[0] # 48hr data is divided into two tables by two colspan elements
+  table = [tr for  tr in table_records if tr != colspan] # vertically concat tables by removing colspan elements
+
+  table = [[ele.getText() for ele in tr.find_all("font")] for tr in table] 
+
+  # Add location column 
+  location_col = ['location']
+  location_col.extend([location]*24) # fill out to match length of other columns
+  table.insert(1, location_col)  # for first half of table
+  table.insert(19, location_col) # for second half of table
+
+  # Add last_update_nws column 
+  last_update_nws = ["last_update_nws"]
+  last_update_nws.extend([utils.get_last_update(soup)] * 24)
+  table.insert(1, last_update_nws)
+  table.insert(19, last_update_nws) 
+
+  return table
 
 
-# def nanCheck(df:pd.DataFrame, msg:str, logger) -> None:  (TO-DO)
-#   """Checks f any rows contain NaNs in a dataframe; logs any such rows and raises exception"""
-
-#   nan_rows = df[df.isna().any(axis=1)]
-#   if not nan_rows.empty: 
-#     logger.
