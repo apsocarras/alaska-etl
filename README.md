@@ -101,7 +101,6 @@ volumes:
   - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
   - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
   - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-  - ${AIRFLOW_PROJ_DIR:-.}:/opt/airflow/repo
   - </path/to/your/creds/directory>:/google_creds
 ```
 After opening Docker Desktop (or starting docker [via CLI](https://docs.docker.com/config/daemon/start/)): 

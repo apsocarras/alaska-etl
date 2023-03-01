@@ -4,6 +4,7 @@ import requests
 import re
 import datetime as dt 
 import os
+from io import BytesIO
 from yaml import full_load
 from bs4 import BeautifulSoup
 # Utilities imports: 
@@ -11,40 +12,57 @@ import utils.utils as utils
 # Airflow imports: 
 from airflow.decorators import dag, task
 # GCP imports: 
-from google.cloud import bigquery 
+from google.cloud import bigquery, storage
 from google.oauth2 import service_account 
 from google.api_core.exceptions import NotFound
 
 ## ---------- GLOBAL VARIABLES ---------- ## 
-# Path information
+
+## Path information
 PATH = os.path.abspath(__file__)
 DIR_NAME = os.path.dirname(PATH)
+
+## Airflow Schedule
+INTERVAL = "@once" 
+START = dt.datetime.now()  
+# ^^ Would not normally do this, but our DAG has no "backfill" aspect and this is fine for a demo
+
+## --- Google Cloud --- ## 
+
 # GCP/BigQuery information
-with open(f"{DIR_NAME}/../config/gcp-config.yaml", "r") as fp:
+with open(f"{DIR_NAME}/config/gcp-config.yaml", "r") as fp:
   gcp_config = full_load(fp)
 PROJECT_ID = gcp_config['project-id']
 DATASET_ID = gcp_config['dataset-id']
 STAGING_TABLE_ID = 'nws_staging'
 MAIN_TABLE_ID = 'nws' 
 
-# Airflow Schedule
-INTERVAL = "@once" 
-
-# Set credentials
-key_path = gcp_config['credentials']
+# Credentials -- access from docker-compose.yaml
+key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 credentials = service_account.Credentials.from_service_account_file(
   key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"],
 )
 
-# Create client
-client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
+# Create bigquery client
+bq_client = bigquery.Client(credentials=credentials, project=credentials.project_id)
+
+
+# Create google cloud storage client
+storage_client = storage.Client(credentials=credentials, project=credentials.project_id)
+bucket = storage_client.bucket(f"{PROJECT_ID}-bucket") # made in first notebook: 1_uscrn_scrape.ipynb
+
+# Download locations  
+blob = bucket.blob("locations.csv")
+content = blob.download_as_bytes()
+locations_df = pd.read_csv(BytesIO(content))
+
 
 ## ---------- DEFINING TASKS ---------- ## 
 
 @task 
 def get_forecast_dict() -> dict:
   """Get dictionary of forecast data for next 6 days from various points in Alaska"""
-  locations_df = pd.read_csv(f"{DIR_NAME}/../data/locations.csv")
+
   nws_urls = locations_df.apply(utils.get_nws_url, axis=1)
   url_map = dict(zip(locations_df['station_location'], nws_urls))
 
@@ -55,6 +73,7 @@ def get_forecast_dict() -> dict:
     combined_table.extend(table_list)
 
   forecast_dict = utils.transpose_as_dict(combined_table)
+  
   return forecast_dict
 
 @task
@@ -72,7 +91,7 @@ def transform_forecast(forecast_dict) -> dict:
   ## Replace missing values
   # Replace missing values in gust with zero -- gust is never *actually* 0 so no masking
   # Replace missing values in windchill with an explicity np.NaN
-  df.replace({'gust':{'':0}, 'wind_chill_f':{'':0}}, inplace=True)
+  df.replace({'gust':{'':0}, 'wind_chill_f':{'':np.nan}}, inplace=True)
 
   ## Datetime Transformations
   cur_year = dt.datetime.now().year
@@ -95,6 +114,10 @@ def transform_forecast(forecast_dict) -> dict:
   col_names = ['location', 'utc_datetime', 'lst_datetime'] + list(df.columns[4:-2]) + ["last_update_nws"]
   df = df[col_names]
 
+  ## Change datetime columns back to strings before passing to XCOM
+  df['utc_datetime'] = df['utc_datetime'].astype(str)
+  df['lst_datetime'] = df['lst_datetime'].astype(str)
+
   transformed_dict = df.to_dict()
   return transformed_dict
 
@@ -105,6 +128,11 @@ def load_staging_table(transformed_dict:dict) -> None:
   
   # Create dataframe
   df = pd.DataFrame(transformed_dict)
+
+  # Re-read datetime columns to datetime
+  df['utc_datetime'] = pd.to_datetime(df['utc_datetime'])
+  df['lst_datetime'] = pd.to_datetime(df['lst_datetime'])
+  df['last_update_nws'] = pd.to_datetime(df['last_update_nws'])
 
   # Set Schema
   schema = [
@@ -144,7 +172,7 @@ def load_staging_table(transformed_dict:dict) -> None:
   # Upload to BigQuery
   ## If any required columns are missing values, include name of column in error message
   try: 
-    job = client.load_table_from_dataframe(df, full_table_id, job_config=jc)
+    job = bq_client.load_table_from_dataframe(df, full_table_id, job_config=jc)
     job.result()
   except Exception as e:
     error_message = str(e)
@@ -156,11 +184,11 @@ def load_staging_table(transformed_dict:dict) -> None:
       error_message = error_message[:start_index] + f'{missing_column_name} ({missing_column_index})' + error_message[end_index:]
     raise Exception(error_message) 
   
-  job = client.load_table_from_dataframe(df, full_table_id, job_config=jc)
+  job = bq_client.load_table_from_dataframe(df, full_table_id, job_config=jc)
   job.result()
 
   # Log result 
-  table = client.get_table(full_table_id)
+  table = bq_client.get_table(full_table_id)
   print(f"Loaded {table.num_rows} rows and {len(table.schema)} columns into {full_table_id}\n")
 
 @task
@@ -174,7 +202,7 @@ def insert_table() -> None:
     """
 
   try: 
-    query_job = client.query(insert_query) 
+    query_job = bq_client.query(insert_query) 
     query_job.result()
   except NotFound:
     print(f"Table {DATASET_ID}.{MAIN_TABLE_ID} does not exist. Creating.")
@@ -184,17 +212,17 @@ def insert_table() -> None:
       SELECT *, CURRENT_TIMESTAMP() as date_added
       FROM {DATASET_ID}.{STAGING_TABLE_ID}
     """
-    query_job = client.query(create_query)
+    query_job = bq_client.query(create_query)
     query_job.result()
     
   full_table_id = f"{PROJECT_ID}.{DATASET_ID}.{MAIN_TABLE_ID}"
-  table = client.get_table(full_table_id)
+  table = bq_client.get_table(full_table_id)
   print(f"Loaded {table.num_rows} rows and {len(table.schema)} columns into {full_table_id}\n")
 
 
 @dag(
    schedule_interval=INTERVAL,
-   start_date=dt.datetime.now(),
+   start_date=START, 
    catchup=False,
    default_view='graph',
    is_paused_upon_creation=True,

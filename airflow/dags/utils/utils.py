@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 
   
 ## ----- NWS_DAG UTILS ----- ## 
-## General Utilities 
+
 def get_soup(url:str) -> BeautifulSoup:
   """Simple wrapper for getting beautiful soup object from url"""
   result = requests.get(url)
@@ -24,7 +24,6 @@ def _ff_list(ls:list) -> list:
         ls[i] = ls[i-1]
   return ls
 
-## Specific Utilities
 def get_nws_url(row:pd.Series) -> str:
   """
   Get url for the next 48 hours of forecasts from latitude and longitude columns
@@ -39,7 +38,7 @@ def get_nws_url(row:pd.Series) -> str:
   url = f"https://forecast.weather.gov/MapClick.php?w0=t&w1=td&w2=wc&w3=sfcwind&w3u=1&w4=sky&w5=pop&w6=rh&w7=rain&w8=thunder&w9=snow&w10=fzg&w11=sleet&w12=fog&AheadHour=0&Submit=Submit&FcstType=digital&textField1={lat}&textField2={lon}&site=all&unit=0&dd=&bw=&menu=1"
   return url
 
-def get_last_update(soup:BeautifulSoup) -> dt.datetime:
+def get_last_update(soup:BeautifulSoup) -> str:
   """
   Find the "Last Updated" value from a BeautifulSoup object, transform to a datetime in AKST
 
@@ -47,12 +46,12 @@ def get_last_update(soup:BeautifulSoup) -> dt.datetime:
   soup (BeautifulSoup): A Beautiful Soup representation of a particular NWS forecast page
 
   Returns: 
-  last_update_dt (datetime): Datetime representation of time page was last updated (AKST)
+  last_update_dt (str): String representation of time page was last updated (AKST) (Format: "%I:%M%p %b %d %Y")
   """
   last_update_tag = soup.find('td', string=lambda text: text and 'Last Update:' in text)
   last_update_text = re.sub("Last Update: |\s(?=pm|am)|AKST |,", "", last_update_tag.getText())
-  last_update_dt = dt.datetime.strptime(last_update_text, "%I:%M%p %b %d %Y")
-  return last_update_dt
+  # last_update_dt = dt.datetime.strptime(last_update_text, "%I:%M%p %b %d %Y") -- needs to be string to push to XCOMs
+  return last_update_text
 
 def transpose_as_dict(table:list) -> dict:
   """
@@ -102,7 +101,7 @@ def extract_table_data(soup:BeautifulSoup, location:str) -> list:
 
   # Add last_update_nws column 
   last_update_nws = ["last_update_nws"]
-  last_update_nws.extend([utils.get_last_update(soup)] * 24)
+  last_update_nws.extend([get_last_update(soup)] * 24)
   table.insert(1, last_update_nws)
   table.insert(19, last_update_nws) 
 
