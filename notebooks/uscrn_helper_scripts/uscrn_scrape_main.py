@@ -5,94 +5,8 @@ import os
 import re
 from datetime import datetime
 from bs4 import BeautifulSoup
+from utils.utils import get_file_urls, get_station_location
 
-
-def get_year_urls() -> list: 
-  """
-  Retrieves the URLs for every year's page in the USCRN index.
-  
-  Returns:
-  year_urls (list): A list of URLs for every year's page.
-  """
-
-  url = "https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/"
-  response = requests.get(url)
-  soup = BeautifulSoup(response.content, "html.parser")
-
-
-  links = soup.find_all("a") 
-  years = [str(x).zfill(1) for x in range(2000,2024)]
-  year_urls = [url + link['href'] for link in links if link['href'].rstrip('/') in years]
-  return year_urls
-
-def get_file_urls() -> list: 
-  """
-  Retrieves the URLs for every file contained on each year's page.
-
-  Returns: 
-  file_urls (list): A list of file URLs.
-  """
-  year_urls = get_year_urls()
-
-  file_urls = []
-  for url in year_urls: 
-    response = requests.get(url) 
-    soup = BeautifulSoup(response.content, 'html.parser')
-    file_links = soup.find_all('a', href=re.compile(r'AK.*\.txt'))
-    if file_links:
-      new_file_urls = [url + link.getText() for link in file_links]
-      file_urls.extend(new_file_urls)
-  return file_urls
-
-def transform_dataframe(df) -> pd.DataFrame:
-  """
-  Transforms a Pandas DataFrame created from a list of lists in process_rows().
-    
-  Args:
-  df (pandas.DataFrame): The DataFrame to be transformed.
-  
-  Returns:
-  transformed_df (pandas.DataFrame): The transformed DataFrame.
-  """
-  df = df.copy()
-
-  # replace missing value designators
-  df.replace([-99999,-9999], np.nan, inplace=True) 
-  df.replace({'crx_vn':{-9:np.nan}}, inplace=True)
-
-  # Drop soil columns -- vast majority have missing data 
-  df = df.filter(regex="^((?!soil).)*$")
-
-  # convert to datetimes
-  df['utc_datetime'] = pd.to_datetime(df['utc_date'].astype(int).astype(str) + df['utc_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
-  df['lst_datetime'] = pd.to_datetime(df['lst_date'].astype(int).astype(str) + df['lst_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
-
-  # drop old date and time columns
-  df.drop(['utc_date', 'utc_time', 'lst_date', 'lst_time'], axis=1, inplace=True)
-
-  # reorder columns 
-  cols = ['station_location','wbanno','crx_vn','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
-  df = df[cols]
-
-  # add date-added column
-  df['date_added_utc'] = datetime.utcnow() 
-
-  return df 
-
-def get_station_location(url) -> str: 
-  """
-  Extracts the name of the station from a given URL.
-  
-  Args:
-  url (str): The URL to extract the station name from.
-  
-  Returns:
-  station_location (str): The name of the station.
-  """
-  regex = r"([St.]*[A-Z][a-z]+_*[A-Za-z]*).*.txt" 
-  file_name = re.search(regex, url).group(0)
-  station_location = re.sub("(_formerly_Barrow.*|_[0-9].*)", "", file_name)
-  return  station_location
 
 def process_rows(file_urls, row_limit, output_file) -> None:
   """
@@ -132,8 +46,25 @@ def process_rows(file_urls, row_limit, output_file) -> None:
   # Create dataframe for current batch
   df = pd.DataFrame(rows, columns=columns)
 
-  # Transform dataframe
-  df = transform_dataframe(df)
+  ####  Transform dataframe  #### 
+  df.replace([-99999,-9999], np.nan, inplace=True) 
+  df.replace({'crx_vn':{-9:np.nan}}, inplace=True)
+
+  # Drop soil columns -- vast majority have missing data 
+  df = df.filter(regex="^((?!soil).)*$")
+
+  # convert to datetimes
+  df['utc_datetime'] = pd.to_datetime(df['utc_date'].astype(int).astype(str) + df['utc_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
+  df['lst_datetime'] = pd.to_datetime(df['lst_date'].astype(int).astype(str) + df['lst_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
+
+  # drop old date and time columns
+  df.drop(['utc_date', 'utc_time', 'lst_date', 'lst_time'], axis=1, inplace=True)
+
+  # reorder columns 
+  cols = ['station_location','wbanno','crx_vn','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
+  df = df[cols]
+
+  #### -------------- #####
 
   # Write dataframe to CSV
   if os.path.isfile(output_file):
@@ -150,6 +81,8 @@ def process_rows(file_urls, row_limit, output_file) -> None:
       return 
 
 if __name__ == "__main__":
+
+  directory = "hourly02" # main data directory for USCRN
 
   output_file = "../data/uscrn.csv"
 
