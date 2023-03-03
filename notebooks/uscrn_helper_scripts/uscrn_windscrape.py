@@ -62,7 +62,7 @@ def process_rows(file_urls, row_limit, output_file) -> None:
   # rename wind column 
   df.rename({"wind_1_5":"wind_hr_avg"}, axis=1, inplace=True)
 
-  #### -------------- #####
+  #### --------------------- #####
 
   # Write dataframe to CSV
   if os.path.isfile(output_file):
@@ -81,11 +81,11 @@ def process_rows(file_urls, row_limit, output_file) -> None:
 
 if __name__ == "__main__":
 
-  uscrn_directory = "subhourly01" # directory containing wind data
+  file_urls = get_file_urls("subhourly01") # directory containing wind data
 
   output_file = "../data/uscrn_wind.csv"
 
   if os.path.isfile(output_file):
     raise Exception(f"{output_file} already exists")
 
-  process_rows(file_urls=get_file_urls(), row_limit=300000, output_file=output_file)
+  process_rows(file_urls=file_urls, row_limit=300000, output_file=output_file)

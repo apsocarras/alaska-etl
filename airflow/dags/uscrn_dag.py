@@ -116,7 +116,7 @@ def check_last_added() -> str: # String representation of datetime
   return last_added_str
 
 @task
-def get_new_file_urls(last_added:str, ti=None) -> list: 
+def get_new_file_urls(last_added:str) -> list: 
   """Check/obtain updates from USCRN updates page"""
   now = dt.datetime.utcnow()
   updates_url = SOURCES['USCRN']['updates'] + "/" + str(now.year)
@@ -134,28 +134,28 @@ def get_new_file_urls(last_added:str, ti=None) -> list:
 
   return new_file_urls
 
-# @task
-# def getUpdates(new_file_urls:list) -> list: 
-#   """Scrape data from list of new urls, store and return as list of lists"""
+@task
+def get_updates_main(new_file_urls:list) -> list: 
+  """Scrape data from list of new urls, store and return as list of lists"""
 
-#   # locations = pd.read_csv(f"{DIR_NAME}/data/locations.csv")
-#   wbs = set(locations_df['wbanno'])
+  # locations = pd.read_csv(f"{DIR_NAME}/data/locations.csv")
+  wbs = set(locations_df['wbanno'])
 
-#   rows = []
-#   for url in new_file_urls:
-#     # Log the current URL being processed
-#     logger.info(f'Processing URL: {url}')
-#     # Scrape data from URL
-#     response = requests.get(url)
-#     soup = BeautifulSoup(response.content,'html.parser')
-#     soup_lines = str(soup).strip().split("\n")[3:]
-#     ak_rows = [re.split('\s+', line) for line in soup_lines if line[0:5] in wbs] # line[0:5] contains WBANNO code
-#     rows.extend(ak_rows)
+  rows = []
+  for url in new_file_urls:
+    # Log the current URL being processed
+    logger.info(f'Processing URL: {url}')
+    # Scrape data from URL
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content,'html.parser')
+    soup_lines = str(soup).strip().split("\n")[3:]
+    ak_rows = [re.split('\s+', line) for line in soup_lines if line[0:5] in wbs] # line[0:5] contains WBANNO code
+    rows.extend(ak_rows)
 
-#   # Log the number of rows extracted
-#   logger.info(f'Extracted {len(rows)} rows from URLs')
+  # Log the number of rows extracted
+  logger.info(f'Extracted {len(rows)} rows from URLs')
 
-#   return rows
+  return rows
 
 # @task
 # def transform_df(rows:list, ti=None): 
@@ -311,7 +311,7 @@ def uscrn_dag():
     
     t1 = check_connection()
     t2 = check_last_added()
-    t3 = get_new_file_urls(t1)
+    t3 = get_new_file_urls(t2)
 
     # t3 = getUpdates(t2)
     # t4 = transform_df(t3)

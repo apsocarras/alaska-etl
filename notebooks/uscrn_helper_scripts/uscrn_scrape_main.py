@@ -64,7 +64,7 @@ def process_rows(file_urls, row_limit, output_file) -> None:
   cols = ['station_location','wbanno','crx_vn','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
   df = df[cols]
 
-  #### -------------- #####
+  #### ---------------------- #####
 
   # Write dataframe to CSV
   if os.path.isfile(output_file):
@@ -82,11 +82,11 @@ def process_rows(file_urls, row_limit, output_file) -> None:
 
 if __name__ == "__main__":
 
-  directory = "hourly02" # main data directory for USCRN
+  file_urls = get_file_urls("hourly02") # 'hourly02' -- main data directory for USCRN
 
   output_file = "../data/uscrn.csv"
 
   if os.path.isfile(output_file):
     raise Exception(f"{output_file} already exists")
 
-  process_rows(file_urls=get_file_urls(), row_limit=100000, output_file=output_file)
+  process_rows(file_urls=file_urls, row_limit=100000, output_file=output_file)
