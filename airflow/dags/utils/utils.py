@@ -106,5 +106,3 @@ def extract_table_data(soup:BeautifulSoup, location:str) -> list:
   table.insert(19, last_update_nws) 
 
   return table
-
-

@@ -6,6 +6,6 @@ beautifulsoup4
 google-cloud-bigquery
 google-cloud-storage
 google-cloud-logging
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
+# google-auth -- Unneeded for GCF
+# google-auth-oauthlib
+# google-auth-httplib2
