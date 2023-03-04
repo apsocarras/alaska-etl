@@ -64,7 +64,7 @@ def process_rows(file_urls, row_limit, output_file) -> None:
   cols = ['station_location','wbanno','crx_vn','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
   df = df[cols]
 
-  #### ---------------------- #####
+  #### --------------------- #####
 
   # Write dataframe to CSV
   if os.path.isfile(output_file):
