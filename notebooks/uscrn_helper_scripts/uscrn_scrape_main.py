@@ -64,6 +64,9 @@ def process_rows(file_urls, row_limit, output_file) -> None:
   cols = ['station_location','wbanno','crx_vn','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
   df = df[cols]
 
+  # add date added column
+  df['date_added_utc'] = datetime.utcnow()
+
   #### --------------------- #####
 
   # Write dataframe to CSV
