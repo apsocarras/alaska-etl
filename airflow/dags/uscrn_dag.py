@@ -148,7 +148,7 @@ def get_updates_main(new_file_urls:list) -> list:
     # Scrape data from URL
     response = requests.get(url)
     soup = BeautifulSoup(response.content,'html.parser')
-    soup_lines = str(soup).strip().split("\n")[3:]
+    soup_lines = str(soup).strip().splitlines()[3:]
     ak_rows = [re.split('\s+', line) for line in soup_lines if line[0:5] in wbs] # line[0:5] contains WBANNO code
     rows.extend(ak_rows)
 

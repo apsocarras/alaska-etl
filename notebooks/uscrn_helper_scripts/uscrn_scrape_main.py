@@ -28,7 +28,7 @@ def process_rows(file_urls, row_limit, output_file) -> None:
     # Get new rows 
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
-    soup_lines = [station_location + " " + line for line in str(soup).strip().split("\n")]
+    soup_lines = [station_location + " " + line for line in str(soup).strip().splitlines()]
     new_rows = [re.split('\s+', row) for row in soup_lines]
     # Add to list
     rows.extend(new_rows)
