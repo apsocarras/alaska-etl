@@ -70,11 +70,14 @@ def process_rows(file_urls, row_limit, output_file) -> None:
   #### --------------------- #####
 
   # Write dataframe to CSV
-  if os.path.isfile(output_file):
-      df.to_csv(output_file, mode='a', header=False, index=False)
-  else:
-    with open(output_file, "w") as fp:
-      df.to_csv(fp, index=False)
+  hdr = False if os.path.isfile(output_file) else True
+  df.to_csv("../data/uscrn.csv", mode="a+", header=hdr, index=False)
+  
+  # if os.path.isfile(output_file):
+  #     df.to_csv(output_file, mode='a', header=False, index=False)
+  # else:
+  #   with open(output_file, "w") as fp:
+  #     df.to_csv(fp, index=False)
   
   # Recursively process remaining rows     
   if len(rows) >= row_limit:
