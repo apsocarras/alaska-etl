@@ -1,16 +1,15 @@
 import requests
 import pandas as pd 
-import numpy as np
-import os
 import re
 import time
 import itertools
+from logging import Logger 
 import datetime as dt 
 from bs4 import BeautifulSoup
+from google.cloud import bigquery 
 
-
-
-## Shared utilities (USCRN and NWS)
+##-------------------------------------------- ##
+# Shared utilities (USCRN and NWS)
 def get_soup(url:str, delay=0) -> BeautifulSoup:
   """Simple wrapper for getting beautiful soup object from url with sleep delay
   
@@ -23,6 +22,27 @@ def get_soup(url:str, delay=0) -> BeautifulSoup:
   result = requests.get(url)
   time.sleep(delay)
   return BeautifulSoup(result.content, "html.parser") 
+
+def check_connection(domain_url:str, logger:Logger) -> None: 
+  """Check connection to domain"""
+
+  if domain_url not in ("https://ncei.noaa.gov", "https://weather.gov"):
+    raise Exception(f"Invavlid domain given {domain_url}")
+  
+  try:
+    response = requests.get(domain_url, timeout=5)
+    if response.status_code == 200:
+        logger.info(f"Connection to {domain_url} is successful")
+    else:
+          logger.info(f"Connection to {domain_url} failed with status code {response.status_code}")
+  except requests.exceptions.Timeout as e:
+      logger.info(f"Connection to {domain_url} timed out: {e}")
+  except requests.exceptions.RequestException as e:
+      logger.info(f"Connection to {domain_url} failed: {e}")
+
+
+##-------------------------------------------- ##
+# USCRN Specific Utilities
 
 def _get_year_urls(uscrn_directory:str) -> list: 
   """
@@ -90,7 +110,8 @@ def get_station_location(url) -> str:
   station_location = re.sub("(_formerly_Barrow.*|_[0-9].*)", "", file_name)
   return  station_location
 
-## NWS specific utilities 
+##-------------------------------------------- ##
+# NWS Specific Utilities
 
 def flatten(ls:list): 
   """Flattens/unnests a list of lists by one layer"""
