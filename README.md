@@ -37,8 +37,8 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 │   │   ├── nws_dag.py             
 │   │   ├── uscrn_dag.py
 │   │   └── uscrn_wind_dag.py # wind data stored separately
-|   ├── logs    
-|   └── plugins 
+│   ├── logs    # set setup/install
+│   └── plugins 
 ├── img
 ├── notebooks
 │   ├── 1_uscrn_scrape.ipynb
@@ -115,11 +115,12 @@ After opening Docker Desktop (or starting docker [via CLI](https://docs.docker.c
 docker compose up airflow-init 
 docker compose up 
 ```
-Lastly, change `gcp-config.yaml` to match your GCP project information
+Lastly, change `gcp-config.yaml` to match your GCP project information (click [here](https://cloud.google.com/bigquery/docs/locations) for information on Google server locations).
 
 ```yaml
 project-id: <your-project-id>
 dataset-id: <your-dataset-id>
+location: <your-project-location> # e.g. us-east4
 credentials: </path/to/your/creds/directory>
 ```
 Be sure to have your Docker container up before running any of the DAGs. The files in `notebooks` do not require the container to be active, however.

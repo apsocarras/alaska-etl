@@ -1,3 +1,4 @@
 project-id: alaska-scrape
 dataset-id: weather 
+location: us-east4
 credentials: /home/alex/.creds/ak-scrape-sa.json
