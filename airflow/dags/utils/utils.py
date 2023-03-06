@@ -7,6 +7,7 @@ from logging import Logger
 import datetime as dt 
 from bs4 import BeautifulSoup
 from google.cloud import bigquery 
+from google.api_core.exceptions import NotFound
 
 ##-------------------------------------------- ##
 # Shared utilities (USCRN and NWS)
@@ -17,7 +18,7 @@ def get_soup(url:str, delay=0) -> BeautifulSoup:
 
   url (str): url you're scraping
 
-  delay (int): time you want to wait between next request (default 0)
+  delay (int): seconds you want to wait between next request (default 0)
   """
   result = requests.get(url)
   time.sleep(delay)
@@ -40,7 +41,30 @@ def check_connection(domain_url:str, logger:Logger) -> None:
   except requests.exceptions.RequestException as e:
       logger.info(f"Connection to {domain_url} failed: {e}")
 
+def insert_table(full_table_id:str, logger:Logger, bq_client:bigquery.Client) -> None:
+  """Insert staging table into main data table -- create main table if needed"""
 
+  insert_query=f"""
+    INSERT INTO {full_table_id} 
+    SELECT *, CURRENT_TIMESTAMP() as date_added
+    FROM {full_table_id}_staging 
+    """
+
+  try: 
+    query_job = bq_client.query(insert_query) 
+    query_job.result()
+  except NotFound:
+    logger.info(f"Table {full_table_id} does not exist. Creating.")
+
+    create_query = f"""
+      CREATE TABLE {full_table_id}
+      AS
+      SELECT *, CURRENT_TIMESTAMP() as date_added
+      FROM {full_table_id}_staging
+    """
+    query_job = bq_client.query(create_query)
+    query_job.result()
+    
 ##-------------------------------------------- ##
 # USCRN Specific Utilities
 

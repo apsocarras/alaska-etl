@@ -5,16 +5,16 @@ import os
 import re
 import datetime as dt
 from yaml import full_load
-from collections import deque
 from io import StringIO, BytesIO
 from bs4 import BeautifulSoup
-# Utilities imports: 
-# from utils.utils import nanCheck (TO-DO)
 # Airflow imports: 
 from airflow.decorators import dag, task
 # GCP imports: 
 from google.cloud import bigquery, storage
 from google.oauth2 import service_account
+from google.api_core.exceptions import NotFound
+# Utilities imports 
+import utils.utils as utils
 
 ## ---------- GLOBAL VARIABLES ---------- ## 
 
@@ -52,7 +52,6 @@ credentials = service_account.Credentials.from_service_account_file(
 # Create bigquery client
 bq_client = bigquery.Client(credentials=credentials, project=credentials.project_id)
 
-
 # Create google cloud storage client
 storage_client = storage.Client(credentials=credentials, project=credentials.project_id)
 bucket = storage_client.bucket(f"{PROJECT_ID}-bucket") # made in first notebook: 1_uscrn_scrape.ipynb
@@ -61,6 +60,11 @@ bucket = storage_client.bucket(f"{PROJECT_ID}-bucket") # made in first notebook:
 blob = bucket.blob("locations.csv")
 content = blob.download_as_bytes()
 locations_df = pd.read_csv(BytesIO(content))
+
+# Download column descriptions  
+blob = bucket.blob("column_descriptions.csv")
+content = blob.download_as_bytes()
+column_descriptions = pd.read_csv(BytesIO(content))
 
 
 ## ---------- SET LOGGING ---------- ## 
@@ -83,34 +87,26 @@ logger.addHandler(handler)
 
 ## ---------- DEFINING TASKS ---------- ## 
 @task
-def check_connection() -> None:
-    url = "https://ncei.noaa.gov/"
-    try:
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            print(f"Connection to {url} is successful")
-        else:
-            print(f"Connection to {url} failed with status code {response.status_code}")
-    except requests.exceptions.Timeout as e:
-        print(f"Connection to {url} timed out: {e}")
-    except requests.exceptions.RequestException as e:
-        print(f"Connection to {url} failed: {e}")
+def check_domain () -> None:
+    """Checks connection to USCRN main domain"""
+    utils.check_connection(domain="https://ncei.noaa.gov", logger=logger)
+
 
 @task
 def check_last_added() -> str: # String representation of datetime
-  """Reads/returns latest 'date_added_utc' value from main table"""
+  """Reads/returns latest 'date_added' value from main table"""
   
   query = f"""
-  SELECT date_added_utc 
+  SELECT date_added 
   FROM {DATASET_ID}.{MAIN_TABLE_ID}
-  ORDER BY date_added_utc DESC LIMIT 1
+  ORDER BY date_added DESC LIMIT 1
   """
 
   query_job = bq_client.query(query)
   result = query_job.result()
 
   row = next(result)
-  last_added = row['date_added_utc']
+  last_added = row['date_added']
   last_added_str = dt.datetime.strftime(last_added, format="%Y-%m-%d %H:%M:%S.%f")
 
   return last_added_str
@@ -135,21 +131,19 @@ def get_new_file_urls(last_added:str) -> list:
   return new_file_urls
 
 @task
-def get_updates_main(new_file_urls:list) -> list: 
+def get_updates(new_file_urls:list) -> list: 
   """Scrape data from list of new urls, store and return as list of lists"""
 
-  # locations = pd.read_csv(f"{DIR_NAME}/data/locations.csv")
-  wbs = set(locations_df['wbanno'])
-
+  wbanno_codes = set(locations_df['wbanno'])
   rows = []
   for url in new_file_urls:
     # Log the current URL being processed
     logger.info(f'Processing URL: {url}')
     # Scrape data from URL
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content,'html.parser')
+    result = requests.get(url)
+    soup = BeautifulSoup(result.content, "html.parser") 
     soup_lines = str(soup).strip().splitlines()[3:]
-    ak_rows = [re.split('\s+', line) for line in soup_lines if line[0:5] in wbs] # line[0:5] contains WBANNO code
+    ak_rows = [re.split('\s+', line) for line in soup_lines if line[0:5] in wbanno_codes] 
     rows.extend(ak_rows)
 
   # Log the number of rows extracted
@@ -157,148 +151,124 @@ def get_updates_main(new_file_urls:list) -> list:
 
   return rows
 
-# @task
-# def transform_df(rows:list, ti=None): 
-#   """Read rows from getUpdates(), cast to dataframe, transform, write to csv"""
+@task
+def transform_df(rows:list, ti=None): 
+  """Read rows from getUpdates(), cast to dataframe, transform, write to csv"""
   
-#   # Get column headers 
-#   columns = list(pd.read_csv(f"{DIR_NAME}/data/column_descriptions.csv")['col_name'])
+  # Get column headers: 
+  columns = list(column_descriptions['col_name'])
+  # For reference: 
+  ## columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_time','crx_vn','longitude','latitude',
+  ##'t_calc','t_hr_avg','t_max','t_min','p_calc','solarad','solarad_flag','solarad_max','solarad_max_flag','solarad_min',
+  ##'solarad_min_flag','sur_temp_type','sur_temp','sur_temp_flag','sur_temp_max','sur_temp_max_flag','sur_temp_min',
+  ##'sur_temp_min_flag','rh_hr_avg','rh_hr_avg_flag','soil_moisture_5','soil_moisture_10','soil_moisture_20',
+  ##'soil_moisture_50','soil_moisture_100','soil_temp_5','soil_temp_10','soil_temp_20','soil_temp_50','soil_temp_100']  
 
-#   # Get locations
-#   locations = pd.read_csv(f"{DIR_NAME}/data/locations.csv")
-#   locations = locations[['station_location', 'wbanno']]
-#   locations['wbanno'] = locations['wbanno'].astype(int).astype(str) 
-#   locations.set_index("wbanno", inplace=True)
+  # Create dataframe from rows 
+  df = pd.DataFrame(rows, columns=columns[1:]) # exclude station_location -- have yet to add by joining on wbanno
 
-#   # Create dataframe
-#   df = pd.DataFrame(rows, columns=columns[1:])
+  # Merge with locations 
+  a = locations_df[['station_location','wbanno']]
+  a['wbanno'] = a['wbanno'].astype(int).astype(str) # remove trailing decimal
+  a.set_index("wbanno", inplace=True)
 
-#   ## (TO-DO) Check for NaN values from source
+  df = df.merge(a, how="left", left_on="wbanno", right_index=True)
 
-  
-#   # Merge locations
-#   df = df.merge(locations, how="left", left_on="wbanno", right_index=True)
+  # Move location column to front  
+  columns = ['station_location'] + list(df.columns)[:-1]
+  df = df[columns]
 
-#   ## (TO-DO) Check for NaN values from merge 
+  # Change datatypes
+  df = df.apply(pd.to_numeric, errors='ignore')
 
-#   # Reorder columns 
-#   columns = ['station_location'] + list(df.columns)[:-1]
-#   df = df[columns]
+  # Replace missing value designators with NaN
+  df.replace([-99999,-9999], np.nan, inplace=True) 
+  df.replace({'crx_vn':{-9:np.nan}}, inplace=True)
+  df = df.filter(regex="^((?!soil).)*$") # soil columns have almost all missing values
 
-#   # Change datatypes
-#   df = df.apply(pd.to_numeric, errors='ignore')
+  # Create datetime columns
+  df['utc_datetime'] = pd.to_datetime(df['utc_date'].astype(int).astype(str) + df['utc_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
+  df['lst_datetime'] = pd.to_datetime(df['lst_date'].astype(int).astype(str) + df['lst_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
 
-#   ## (TO-DO) Check for NaN values from type transform 
+  # Drop old date and time columns 
+  df.drop(['utc_date', 'utc_time', 'lst_date', 'lst_time'], axis=1, inplace=True)
 
+  # Reorder columns after drop
+  cols = ['station_location','wbanno','crx_vn','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
+  df = df[cols]
 
-#   ## ------ If no NaNs will be masked from source, safe to replace missing value designators ------ ## 
+  # Check for duplicates in key columns: 
+  duplicates = df.duplicated(subset=["station_location", "utc_datetime", "lst_datetime"], keep=False)
+  duplicate_rows = df[duplicates]
+  if not duplicate_rows.empty:
+    logger.warning(f"Warning: {len(duplicate_rows)} rows have duplicate values in location and time columns")
+    logger.warning(f"Dropping")
+    df.drop_duplicates(subset=['location', 'utc_datetime', 'lst_datetime'], inplace=True, ignore_index=True)
 
-#   # Replace missing value designators with NaN
-#   df.replace([-99999,-9999], np.nan, inplace=True) 
-#   df.replace({'crx_vn':{-9:np.nan}}, inplace=True)
-#   df = df.filter(regex="^((?!soil).)*$") # almost all missing values
+  # Write to .csv
+  df.to_csv(f"{DIR_NAME}/data/uscrn_updates.csv", index=False)
 
-#   # Create datetime columns
-#   df['utc_datetime'] = pd.to_datetime(df['utc_date'].astype(int).astype(str) + df['utc_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
-#   df['lst_datetime'] = pd.to_datetime(df['lst_date'].astype(int).astype(str) + df['lst_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
+@task
+def load_staging_table():
+  """Upload uscrn_updates.csv file to BigQuery"""
 
-#   # Drop old date and time columns 
-#   df.drop(['utc_date', 'utc_time', 'lst_date', 'lst_time'], axis=1, inplace=True)
+  # Set schema and job_config
+  schema = [
+    bigquery.SchemaField("station_location", "STRING", mode="REQUIRED"), 
+    bigquery.SchemaField("wbanno", "STRING", mode="REQUIRED"), 
+    bigquery.SchemaField("crx_vn", "STRING", mode="NULLABLE"), 
+    bigquery.SchemaField("utc_datetime", "DATETIME", mode="REQUIRED"), 
+    bigquery.SchemaField("lst_datetime", "DATETIME", mode="REQUIRED"), 
+    bigquery.SchemaField("longitude", "FLOAT", mode="REQUIRED"), 
+    bigquery.SchemaField("latitude", "FLOAT", mode="REQUIRED"), 
+    bigquery.SchemaField("t_calc", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("t_hr_avg", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("t_max", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("t_min", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("p_calc", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("solarad", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("solarad_flag", "STRING", mode="NULLABLE"), 
+    bigquery.SchemaField("solarad_max", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("solarad_max_flag", "STRING", mode="NULLABLE"), 
+    bigquery.SchemaField("solarad_min", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("solarad_min_flag", "STRING", mode="NULLABLE"), 
+    bigquery.SchemaField("sur_temp_type", "STRING", mode="NULLABLE"), 
+    bigquery.SchemaField("sur_temp", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("sur_temp_flag", "STRING", mode="NULLABLE"), 
+    bigquery.SchemaField("sur_temp_max", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("sur_temp_max_flag", "STRING", mode="NULLABLE"), 
+    bigquery.SchemaField("sur_temp_min", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("sur_temp_min_flag", "STRING", mode="NULLABLE"), 
+    bigquery.SchemaField("rh_hr_avg", "FLOAT", mode="NULLABLE"), 
+    bigquery.SchemaField("rh_hr_avg_flag", "STRING", mode="NULLABLE"), 
+    bigquery.SchemaField("date_added", "DATETIME", mode="REQUIRED")
+  ]
 
-#   # Reorder columns 
-#   cols = ['station_location','wbanno','crx_vn','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
-#   df = df[cols]
-
-#   # Add date-added column (utc)
-#   df['date_added_utc'] = dt.datetime.utcnow() 
-
-#   # Write to .csv
-#   # XCOM Pull: `update_range` from XCOM created by 'getNewFileUrls'
-#   # update_range = ti.xcom_pull(key="update_range", task_id="getNewFileURLs")
-#   update_range = ti.xcom_pull(key="update_range", dag_id="uscrn_dag", task_ids="getNewFileURLs")
-#   df.to_csv(f"{DIR_NAME}/data/uscrn_updates/{update_range[0]}-{update_range[1]}.csv", index=False)
-
-
-# @task
-# def uploadBQ(ti=None):
-#   """Upload latest uscrn_update .csv file to BigQuery"""
-
-#   # Set credentials
-#   key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-#   credentials = service_account.Credentials.from_service_account_file(
-#    key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"],
-#   )
-
-#   # Create bigquery client
-#   bq_client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
-
-#   # Set schema and job_config
-#   schema = [
-#     bigquery.SchemaField("station_location", "STRING", mode="REQUIRED"), 
-#     bigquery.SchemaField("wbanno", "STRING", mode="REQUIRED"), 
-#     bigquery.SchemaField("crx_vn", "STRING", mode="NULLABLE"), 
-#     bigquery.SchemaField("utc_datetime", "DATETIME", mode="REQUIRED"), 
-#     bigquery.SchemaField("lst_datetime", "DATETIME", mode="REQUIRED"), 
-#     bigquery.SchemaField("longitude", "FLOAT", mode="REQUIRED"), 
-#     bigquery.SchemaField("latitude", "FLOAT", mode="REQUIRED"), 
-#     bigquery.SchemaField("t_calc", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("t_hr_avg", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("t_max", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("t_min", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("p_calc", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("solarad", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("solarad_flag", "STRING", mode="NULLABLE"), 
-#     bigquery.SchemaField("solarad_max", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("solarad_max_flag", "STRING", mode="NULLABLE"), 
-#     bigquery.SchemaField("solarad_min", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("solarad_min_flag", "STRING", mode="NULLABLE"), 
-#     bigquery.SchemaField("sur_temp_type", "STRING", mode="NULLABLE"), 
-#     bigquery.SchemaField("sur_temp", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("sur_temp_flag", "STRING", mode="NULLABLE"), 
-#     bigquery.SchemaField("sur_temp_max", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("sur_temp_max_flag", "STRING", mode="NULLABLE"), 
-#     bigquery.SchemaField("sur_temp_min", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("sur_temp_min_flag", "STRING", mode="NULLABLE"), 
-#     bigquery.SchemaField("rh_hr_avg", "FLOAT", mode="NULLABLE"), 
-#     bigquery.SchemaField("rh_hr_avg_flag", "STRING", mode="NULLABLE"), 
-#     bigquery.SchemaField("date_added_utc", "DATETIME", mode="REQUIRED")
-#   ]
-
-#   jc = bigquery.LoadJobConfig(
-#     source_format = bigquery.SourceFormat.CSV,
-#     skip_leading_rows=1,
-#     autodetect=False,
-#     schema=schema,
-#     create_disposition="CREATE_NEVER",
-#     write_disposition="WRITE_APPEND"   
-#   )
+  jc = bigquery.LoadJobConfig(
+    source_format = bigquery.SourceFormat.CSV,
+    skip_leading_rows=1,
+    autodetect=False,
+    schema=schema,
+    create_disposition="CREATE_IF_NEEDED",
+    write_disposition="WRITE_TRUNCATE"   
+  )
  
-#   # Set target table in BigQuery
-#   full_table_id = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+  # Set target table in BigQuery
+  full_table_id = f"{PROJECT_ID}.{DATASET_ID}.{STAGING_TABLE_ID}"
     
-#   # Read file to dataframe first -- direct loading creating schema issues
+  # Read file to dataframe first -- direct loading creating schema issues
+  df = pd.read_csv(f"{DIR_NAME}/data/uscrn_updates.csv", index=False)
 
-#   update_range = ti.xcom_pull(key="update_range", dag_id="uscrn_dag", task_ids="getNewFileURLs")
-#   file_path = f"{DIR_NAME}/data/uscrn_updates/{update_range[0]}-{update_range[1]}.csv"
-#   df = pd.read_csv(file_path)
-
-#   # Upload 
-#   job = bq_client.load_table_from_dataframe(df, full_table_id, job_config=jc)
-#   job.result()
+  # Upload 
+  job = bq_client.load_table_from_dataframe(df, full_table_id, job_config=jc)
+  job.result()
   
-#   # Log result 
-#   print(f"Loaded {df.size} rows and {len(df.columns)} columns")
+  # Log result 
+  logger.info(f"Loaded {df.size} rows and {len(df.columns)} columns into {full_table_id}")
 
-# @task
-# def appendLocal(ti=None):
-#   """Append latest uscrn_update .csv file to local copy of uscrn.csv"""
-
-#   update_range = ti.xcom_pull(key="update_range", dag_id="uscrn_dag", task_ids="getNewFileURLs")
-#   file_path = f"{DIR_NAME}/data/uscrn_updates/{update_range[0]}-{update_range[1]}.csv"
-
-#   updates_df=pd.read_csv(file_path)
-#   updates_df.to_csv(f"{DIR_NAME}/data/uscrn.csv", mode="a", header=False, index=False)
-
+@task
+def insert_table() -> None:
+  utils.insert_table(f"{PROJECT_ID}.{DATASET_ID}.{MAIN_TABLE_ID}")
 ## ---------- DEFINING DAG ---------- ## 
 @dag(
    schedule_interval=INTERVAL,
@@ -309,7 +279,7 @@ def get_updates_main(new_file_urls:list) -> list:
 )
 def uscrn_dag():
     
-    t1 = check_connection()
+    t1 = check_domain()
     t2 = check_last_added()
     t3 = get_new_file_urls(t2)
 
@@ -318,7 +288,7 @@ def uscrn_dag():
     # t5 = uploadBQ()
     # t6 = appendLocal()
 
-    [t1,t2] >> t3 # >> t4 >> [t5, t6]
+    t1 >> [t2,t3] # >> t4 >> [t5, t6]
 
 dag = uscrn_dag()
 

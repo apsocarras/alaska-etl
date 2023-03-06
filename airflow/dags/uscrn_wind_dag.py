@@ -5,7 +5,6 @@ import re
 import csv
 import datetime as dt
 from yaml import full_load
-from collections import deque
 from io import StringIO, BytesIO
 from bs4 import BeautifulSoup
 # Airflow imports: 
@@ -78,9 +77,9 @@ logger.addHandler(handler)
 
 ## ---------- DEFINING TASKS ---------- ## 
 @task
-def check_domain (url:str) -> None:
+def check_domain() -> None:
     """Checks connection to USCRN main domain"""
-    utils.check_connection(domain="https://ncei.noaa.gov", logger=logger)
+    utils.check_connection(domain_url="https://ncei.noaa.gov", logger=logger)
 
 @task
 def get_latest_utc_datetime() -> int: # Integer representation of datetime
@@ -107,6 +106,7 @@ def get_latest_utc_datetime() -> int: # Integer representation of datetime
   latest_hour= dt.datetime.strftime(latest_datetime, format="%H%M")
 
   latest_utc_datetime = int(latest_date + latest_hour)
+
   return latest_utc_datetime
 
 @task 
@@ -125,22 +125,24 @@ def get_wind_file_urls() -> list:
 
   file_urls = [url + link.getText() for link in soup.find_all("a", href=re.compile(r'AK.*\.txt'))]
 
+  logger.info(f"get_wind_file_urls returned {file_urls}")
+
   return file_urls
 
 @task
-def get_updates(file_urls:list, latest_utc_datetime:int) -> str:
+def get_updates(latest_utc_datetime:int, file_urls:list) -> None:
   """Scrape new wind data and write to .csv 
   
   Args: 
-    file_urls (list): List of text file urls
+    file_urls (list): List of urls to .txt files
     last_utc_datetime(int): Latest utc_datetime value from wind table
 
   Returns:
-    write_time (str): String represenation of current time, used to name update file
+    wind_updates (list): List of new rows containing wind data 
   """
 
-  write_time = str(dt.datetime.utcnow())
-
+  wind_updates = []
+  bad_rows = []
   for url in file_urls:
     # Get location from url
     station_location = utils.get_station_location(url)
@@ -148,41 +150,29 @@ def get_updates(file_urls:list, latest_utc_datetime:int) -> str:
     soup = utils.get_soup(url, delay=1)
     lines = [re.split('\s+', line) for line in str(soup).strip().splitlines()]
     # Iterate backwards from end of list, stopping when date is prior to last_bq_update
-    wind_updates = []
     for i in range(len(lines)-1, -1, -1):
       # end loop when old data is reached 
       if int(lines[i][1] + lines[i][2]) <= latest_utc_datetime:
         break 
-      # skip rows with erroneous wind data
-      elif float(lines[i][-2]) < 0: 
-        pass 
+      # log rows with erroneous wind data
+      elif float(lines[i][-2]) < 0 or lines[i][-1] == "3": 
+        bad_rows.append([station_location] + lines[i]) 
       else:
-        wind_updates.extend([station_location] + lines[i][:5] + lines[i][-2:])
-    # Write wind data updates to .csv
-    if wind_updates:
-      with open(f"{DIR_NAME}/data/wind_updates_{write_time}.csv", "a+") as f:
-        writer = csv.writer(f)
-        writer.writerows(wind_updates)
-      del wind_updates
+        wind_updates.append([station_location] + lines[i][:5] + [lines[i][-2]])
 
-  return write_time
+  logger.debug(f"{len(bad_rows)}/{len(bad_rows) + len(wind_updates)} rows had bad wind data: {bad_rows}")
 
+  return wind_updates
 
-def transform_updates(write_time:str) -> None:
-  """Read wind data updates from .csv to dataframe, transform, and write to csv
-
-  Args:
-    write_time (str): Time the raw data file was written by get_updates()
-  
-  Returns: 
-    None
-  """ 
+@task
+def transform_updates(wind_updates:list) -> None:
+  """Read wind_updates from get_updates() to dataframe, transform, and return as dictionary""" 
 
   ## Read the data  
   colnames = ['station_location','wbanno','utc_date','utc_time',
-  'lst_date','lst_time',"wind_1_5", "wind_flag"]
+  'lst_date','lst_time',"wind_1_5"]
 
-  df = pd.read_csv(input_file, names=colnames)
+  df = pd.DataFrame(wind_updates, columns=colnames)
 
   ## Transform data
   df['wind_1_5'] = df['wind_1_5'].astype(float)
@@ -195,49 +185,34 @@ def transform_updates(write_time:str) -> None:
   df['utc_datetime'] = df['utc_datetime'].dt.floor("H")
   df['lst_datetime'] = df['lst_datetime'].dt.floor("H")
 
-  # drop poor quality data (wind_flag == 3)
-  bad_rows = df[df['wind_flag'] == 3]
-  bad_ratio = len(bad_rows) / len(df)
-  if bad_ratio > .05: 
-    logger.warning(f"Warning: {bad_ratio * 100}% of rows containing bad wind_data. Dropping and logging {len(bad_rows)} rows")
-    logger.debug(f"Bad rows: {bad_rows.to_dict('records')}")
-  df.drop(bad_rows.index, inplace =True)
-  df.drop("wind_flag", axis=1, inplace=True)
-
   # aggregate by hour
-  df = df.groupby(['station_location','wbanno','utc_datetime','lst_datetime'])['wind_1_5'].mean().reset_index()
+  df = df.groupby(['station_location','wbanno','utc_datetime','lst_datetime'])['wind_1_5'].mean().round(3).reset_index()
   df.rename({"wind_1_5":"wind_hr_avg"}, axis=1, inplace=True)
 
   # sort by date
-  df.sort_values("utc_datetime", inplace=True)
+  df.sort_values(["station_location", "utc_datetime"], inplace=True)
 
   ## Change datetime columns back to strings before passing to XCOM
   df['utc_datetime'] = df['utc_datetime'].astype(str)
   df['lst_datetime'] = df['lst_datetime'].astype(str)
 
-  ## Write to csv
-  df.to_csv(f"{DIR_NAME}/data/wind_updates_{write_time}_transformed.csv", index=False)
+  ## Write to .csv 
+  df.to_csv(f"{DIR_NAME}/data/uscrn_wind_updates.csv", index=False)
 
+@task
+def load_staging_table() -> None: 
+  """Read latest wind data updates csv and write to staging table in BigQuery"""
 
-def load_staging_table(write_time:str) -> None: 
-  """Read latest wind data updates csv and write to staging table in BigQuery
-  
-  Args:
-    write_time (str): Time the raw data file was written by get_updates()
-
-  Returns:
-    None
-  """
 
   # Set target table 
   table_id = f"{PROJECT_ID}.{DATASET_ID}.{MAIN_TABLE_ID}_staging"
 
   schema = [
-    bigquery.SchemaField("station_location", type="STRING", description="Location name for USCRN station", mode="REQUIRED"), 
-    bigquery.SchemaField("wbanno", type="STRING", description="The station WBAN number", mode="REQUIRED"), 
-    bigquery.SchemaField("utc_datetime",type="DATETIME", description="UTC datetime of the observation", mode="REQUIRED"), 
-    bigquery.SchemaField("lst_datetime",type="DATETIME", description="Local standard datetime of the observation (AKST)", mode="REQUIRED"),
-    bigquery.SchemaField("wind_hr_avg",type="FLOAT", description="Average windspeed for the hour (m/s)", mode="NULLABLE")
+    bigquery.SchemaField("station_location", "STRING", description="Location name for USCRN station", mode="REQUIRED"), 
+    bigquery.SchemaField("wbanno", "STRING", description="The station WBAN number", mode="REQUIRED"), 
+    bigquery.SchemaField("utc_datetime","DATETIME", description="UTC datetime of the observation", mode="REQUIRED"), 
+    bigquery.SchemaField("lst_datetime","DATETIME", description="Local standard datetime of the observation (AKST)", mode="REQUIRED"),
+    bigquery.SchemaField("wind_hr_avg","FLOAT", description="Average windspeed for the hour (m/s)", mode="NULLABLE")
   ]
 
   jc = bigquery.LoadJobConfig(
@@ -250,15 +225,14 @@ def load_staging_table(write_time:str) -> None:
     destination_table_description="Hourly wind speed (m/s) measured at USCRN stations, aggregated from 5 minute measurements"
   )
 
-  ## Upload from dataFrame ## 
-  # Read file to dataframe first -- direct loading creating schema issues
-  # df = pd.read_csv(f"{DIR_NAME}/data/wind_updates_{write_time}.csv"
+  ## Upload from dataframe 
+  # df = pd.DataFrame(transformed_dict)
   # job = bq_client.load_table_from_dataframe(df, table_id, job_config=jc)
   # job.result()
 
-  # Upload from file ## 
-  with open(f"{DIR_NAME}/data/wind_updates_{write_time}.csv", "rb") as f: 
-    job = bq_client.load_table_from_file(f, table_id, job_config=jc)
+  # Upload from file 
+  with open(f"{DIR_NAME}/data/uscrn_wind_updates.csv", "rb") as f: 
+   job = bq_client.load_table_from_file(f, table_id, job_config=jc)
   job.result()
 
   # Log results 
@@ -270,24 +244,24 @@ def insert_to_main_table() -> None:
   """Add data to main dataset from staging table"""
   utils.insert_table(f"{PROJECT_ID}.{DATASET_ID}.{MAIN_TABLE_ID}", logger, bq_client)
 
-
 @dag(
    schedule_interval=INTERVAL,
    start_date=START,
    catchup=False,
    default_view='graph',
    is_paused_upon_creation=True,
+   max_active_runs=1
 )
-def uscrn_dag():
+def uscrn_wind_dag():
   
   t1 = check_domain()
   t2 = get_latest_utc_datetime()
   t3 = get_wind_file_urls()
   t4 = get_updates(t2,t3)
   t5 = transform_updates(t4)
-  t6 = load_staging_table(t4)
+  t6 = load_staging_table()
   t7 = insert_to_main_table()
  
-  t1 >> [t2,t3] >> t4 >> t5 >> t6 >> t7
+  t1 >> [t2,t3] >> t4  >> t5 >> t6  >> t7
 
 dag = uscrn_wind_dag()

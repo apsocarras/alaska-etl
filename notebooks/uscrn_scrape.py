@@ -90,7 +90,7 @@ if __name__ == "__main__":
 
   file_urls = get_file_urls("hourly02") # 'hourly02' -- main data directory for USCRN
 
-  output_file = "../data/uscrn.csv"
+  output_file = "../airflow/dags/data/uscrn.csv"
 
   if os.path.isfile(output_file):
     raise Exception(f"{output_file} already exists")
