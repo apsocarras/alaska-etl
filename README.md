@@ -27,40 +27,45 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 ## Project Structure 
 ```bash
 ├── airflow                   
-│   └── dags
-│       ├── utils
-│       │    └── utils.py 
-│       ├── nws_dag.py        # scrapes/uploads updates from NWS     
-│       └── uscrn_dag.py      # same for USCRN
-├── config
-│   ├── gcp-config.yaml        # Set BQ project, dataset, credentials
-│   └── sources.yaml          # URLs to data sources
-│ 
-├── data
-│   ├── nws_updates    
-│   └── uscrn_updates  
-├── gcf                       # for google cloud functions 
-│   ├── nws_updates_cf.py
-│   └── uscrn_updates_cf.py  
+│   ├── dags
+│   │   ├── config
+│   │   │    ├── gcp-config.yaml  # Set GCP info
+│   │   │    └── sources.yaml     # URLs to data sources      
+│   │   ├── data
+│   │   ├── utils
+│   │   │    └── utils.py 
+│   │   ├── nws_dag.py             
+│   │   ├── uscrn_dag.py
+│   │   └── uscrn_wind_dag.py # wind data stored separately
+|   ├── logs    
+|   └── plugins 
 ├── img
 ├── notebooks
-│   ├── 1_1_uscrn_scrape.ipynb 
-│   1_1_uscrn_scrape.ipynb 
-│   └── uscrn_scrape.py         
+│   ├── 1_uscrn_scrape.ipynb
+│   ├── 2_nws_update.ipynb
+│   ├── 3_gcf_export.ipynb
+│   └── uscrn_scrape.py          
 ├── README.md
 └── requirements.txt
 ```
-`./notebooks/1_uscrn_scrape.ipynb` &nbsp;- &nbsp; Explains and contains code to scrape, transform, save, and upload the main USCRN data as well as supplemental data on column headers and descriptions.  `uscrn_scrape.py` is a helper script to scrape, transform, and download the (very large) main dataset. 
+`./notebooks/1_uscrn_scrape.ipynb` &nbsp;- &nbsp; Explains and contains code to scrape, transform, save, and upload the main USCRN data from the hourly database and the wind data from the subhourly database. `uscrn_scrape.py` is a helper script to scrape, transform, and download the hourly data. 
+
+`./notebooks/2_nws_update.ipynb` &nbsp;- &nbsp; Shows how to scrape weekly forecast data from the NWS.  
+
+`./notebooks/3_gcf_export.ipynb` &nbsp;- &nbsp; Explains how to migrate our three update DAGs to Google Cloud Functions.
 
 ## Data Sources
 [USCRN Hourly Historical Weather Data](https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/): This page contains hourly weather data from the U.S. Climate Reference Network / U.S. Regional Climate Reference Network (USCRN/USRCRN) stored in text files.
+
+[USCRN Subhourly Historical Weather Data](https://www.ncei.noaa.gov/pub/data/uscrn/products/subhourly01/): This page contains sub-hourly weather data from the same USCRN stations taken every five minutes. This database is used to access the USCRN's wind data, which have not been aggregated into the hourly database...for some reason.
+
 
 [NWS Forecasts](https://forecast.weather.gov/MapClick.php?lat=60.7506&lon=-160.5006&unit=0&lg=english&FcstType=digital): The National Weather Service has forecast offices in Fairbanks and Anchorage which provide hourly forecasts by coordinate location in AK. These are available in 48-Hour blocks up to four days out, stored in a tabular format. 
   
 
 ## Setup/Installation Requirements
 
-These instructions are for setting up Airflow to work with the scripts in `airflow/dags/`. If you'd prefer to try out the Google Cloud Functions in `gcf/`, follow the instructions in `gcf/setup.md`.
+These instructions are for setting up Airflow to work with the scripts in `airflow/dags/`. If you'd prefer to try out Google Cloud Functions, follow the instructions in `./notebooks/3_gcf_export.ipynb` 
 
 ```bash 
 # Create and activate virtual environment
@@ -114,6 +119,7 @@ Lastly, change `gcp-config.yaml` to match your GCP project information
 
 ```yaml
 project-id: <your-project-id>
+dataset-id: <your-dataset-id>
 credentials: </path/to/your/creds/directory>
 ```
 Be sure to have your Docker container up before running any of the DAGs. The files in `notebooks` do not require the container to be active, however.
