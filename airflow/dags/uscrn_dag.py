@@ -5,38 +5,77 @@ import os
 import re
 import datetime as dt
 from yaml import full_load
-from collections import deque
-from io import StringIO
+from io import StringIO, BytesIO
 from bs4 import BeautifulSoup
-# Utilities imports: 
-# from utils.utils import nanCheck (TO-DO)
 # Airflow imports: 
 from airflow.decorators import dag, task
 # GCP imports: 
-from google.cloud import bigquery
+from google.cloud import bigquery, storage
 from google.oauth2 import service_account
+from google.api_core.exceptions import NotFound
+# Utilities imports 
+import utils.utils as utils
 
 ## ---------- GLOBAL VARIABLES ---------- ## 
-# Path information
+
+## Path information
 PATH = os.path.abspath(__file__)
 DIR_NAME = os.path.dirname(PATH)
-# GCP/BigQuery information
-with open(f"{DIR_NAME}/data/bq-config.yaml", "r") as fp:
-  bq_config = full_load(fp)
-PROJECT_ID = bq_config['project-id']
-DATASET_ID = bq_config['dataset-id']
-TABLE_ID = 'uscrn'
+PARENT_DIR = os.path.dirname(DIR_NAME)
+
+## Airflow Schedule
+INTERVAL = "@once" 
+START = dt.datetime.now()  
+# ^^ Would not normally do this, but our DAG has no "backfill" aspect and this is fine for a demo
+
 # Data Source URLs
-with open(f"{DIR_NAME}/data/sources.yaml", "r") as fp:
+with open(f"{DIR_NAME}/config/sources.yaml", "r") as fp:
   SOURCES = full_load(fp)
 
+## --- Google Cloud --- ## 
+
+# GCP/BigQuery information
+with open(f"{DIR_NAME}/config/gcp-config.yaml", "r") as fp:
+  gcp_config = full_load(fp)
+PROJECT_ID = gcp_config['project-id']
+DATASET_ID = gcp_config['dataset-id']
+STAGING_TABLE_ID = 'uscrn_staging'
+MAIN_TABLE_ID = 'uscrn'
+
+
+# Credentials -- access from docker-compose.yaml
+key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+credentials = service_account.Credentials.from_service_account_file(
+  key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"],
+)
+
+# Create bigquery client
+bq_client = bigquery.Client(credentials=credentials, project=credentials.project_id)
+
+# Create google cloud storage client
+storage_client = storage.Client(credentials=credentials, project=credentials.project_id)
+bucket = storage_client.bucket(f"{PROJECT_ID}-bucket") # made in first notebook: 1_uscrn_scrape.ipynb
+
+# Download locations  
+blob = bucket.blob("locations.csv")
+content = blob.download_as_bytes()
+locations_df = pd.read_csv(BytesIO(content))
+
+# Download column descriptions  
+blob = bucket.blob("column_descriptions.csv")
+content = blob.download_as_bytes()
+column_descriptions = pd.read_csv(BytesIO(content))
+
+
 ## ---------- SET LOGGING ---------- ## 
+### Airflow does log any print statements, but here's an example of how to log directly
+
 import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-handler = logging.FileHandler(f'/opt/airflow/logs/uscrn_dag_logs.txt')
+handler = logging.FileHandler(f'{PARENT_DIR}/logs/uscrn_dag_logs.txt')
 handler.setLevel(logging.INFO)
 
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -48,20 +87,32 @@ logger.addHandler(handler)
 
 ## ---------- DEFINING TASKS ---------- ## 
 @task
-def lastAdded() -> str: # String representation of datetime
-  """Reads/returns latest 'date_added_utc' value from .csv"""
+def check_domain () -> None:
+    """Checks connection to USCRN main domain"""
+    utils.check_connection(domain="https://ncei.noaa.gov", logger=logger)
 
-  with open(f"{DIR_NAME}/data/uscrn.csv", 'r') as fp:
-    q = deque(fp, 1)  
-  last_added = pd.read_csv(StringIO(''.join(q)), header=None).iloc[0,-1]
-  last_added = dt.datetime.strptime(last_added, "%Y-%m-%d %H:%M:%S.%f")
-  # Convert to EST from UTC -- 'Last modified' field in getNewFile() is given in EST
-  last_added = last_added - dt.timedelta(hours=5)
-
-  return str(last_added)
 
 @task
-def getNewFileURLs(last_added:str, ti=None) -> list: 
+def check_last_added() -> str: # String representation of datetime
+  """Reads/returns latest 'date_added' value from main table"""
+  
+  query = f"""
+  SELECT date_added 
+  FROM {DATASET_ID}.{MAIN_TABLE_ID}
+  ORDER BY date_added DESC LIMIT 1
+  """
+
+  query_job = bq_client.query(query)
+  result = query_job.result()
+
+  row = next(result)
+  last_added = row['date_added']
+  last_added_str = dt.datetime.strftime(last_added, format="%Y-%m-%d %H:%M:%S.%f")
+
+  return last_added_str
+
+@task
+def get_new_file_urls(last_added:str) -> list: 
   """Check/obtain updates from USCRN updates page"""
   now = dt.datetime.utcnow()
   updates_url = SOURCES['USCRN']['updates'] + "/" + str(now.year)
@@ -75,31 +126,24 @@ def getNewFileURLs(last_added:str, ti=None) -> list:
 
   df = df[df['Last modified'] > last_added]
 
-  # XCOM Push: Will use update_range to name .csv later
-  update_range = (str(min(df['Last modified'])), str(max(df['Last modified']))) 
-  ti.xcom_push(key="update_range", value=update_range)
-
   new_file_urls = list(updates_url + "/" + df['Name'])
 
   return new_file_urls
 
 @task
-def getUpdates(new_file_urls:list) -> list: 
+def get_updates(new_file_urls:list) -> list: 
   """Scrape data from list of new urls, store and return as list of lists"""
 
-  locations = pd.read_csv(f"{DIR_NAME}/data/locations.csv")
-  locations['wbanno'] = locations['wbanno'].astype(int).astype(str)
-  wbs = set(locations['wbanno'])
-
+  wbanno_codes = set(locations_df['wbanno'])
   rows = []
   for url in new_file_urls:
     # Log the current URL being processed
     logger.info(f'Processing URL: {url}')
     # Scrape data from URL
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content,'html.parser')
-    soup_lines = str(soup).strip().split("\n")[3:]
-    ak_rows = [re.split('\s+', line) for line in soup_lines if line[0:5] in wbs] # line[0:5] contains WBANNO code
+    result = requests.get(url)
+    soup = BeautifulSoup(result.content, "html.parser") 
+    soup_lines = str(soup).strip().splitlines()[3:]
+    ak_rows = [re.split('\s+', line) for line in soup_lines if line[0:5] in wbanno_codes] 
     rows.extend(ak_rows)
 
   # Log the number of rows extracted
@@ -108,45 +152,39 @@ def getUpdates(new_file_urls:list) -> list:
   return rows
 
 @task
-def transformDF(rows:list, ti=None): 
+def transform_df(rows:list, ti=None): 
   """Read rows from getUpdates(), cast to dataframe, transform, write to csv"""
   
-  # Get column headers 
-  columns = list(pd.read_csv(f"{DIR_NAME}/data/column_descriptions.csv")['col_name'])
+  # Get column headers: 
+  columns = list(column_descriptions['col_name'])
+  # For reference: 
+  ## columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_time','crx_vn','longitude','latitude',
+  ##'t_calc','t_hr_avg','t_max','t_min','p_calc','solarad','solarad_flag','solarad_max','solarad_max_flag','solarad_min',
+  ##'solarad_min_flag','sur_temp_type','sur_temp','sur_temp_flag','sur_temp_max','sur_temp_max_flag','sur_temp_min',
+  ##'sur_temp_min_flag','rh_hr_avg','rh_hr_avg_flag','soil_moisture_5','soil_moisture_10','soil_moisture_20',
+  ##'soil_moisture_50','soil_moisture_100','soil_temp_5','soil_temp_10','soil_temp_20','soil_temp_50','soil_temp_100']  
 
-  # Get locations
-  locations = pd.read_csv(f"{DIR_NAME}/data/locations.csv")
-  locations = locations[['station_location', 'wbanno']]
-  locations['wbanno'] = locations['wbanno'].astype(int).astype(str) 
-  locations.set_index("wbanno", inplace=True)
+  # Create dataframe from rows 
+  df = pd.DataFrame(rows, columns=columns[1:]) # exclude station_location -- have yet to add by joining on wbanno
 
-  # Create dataframe
-  df = pd.DataFrame(rows, columns=columns[1:])
+  # Merge with locations 
+  a = locations_df[['station_location','wbanno']]
+  a['wbanno'] = a['wbanno'].astype(int).astype(str) # remove trailing decimal
+  a.set_index("wbanno", inplace=True)
 
-  ## (TO-DO) Check for NaN values from source
+  df = df.merge(a, how="left", left_on="wbanno", right_index=True)
 
-  
-  # Merge locations
-  df = df.merge(locations, how="left", left_on="wbanno", right_index=True)
-
-  ## (TO-DO) Check for NaN values from merge 
-
-  # Reorder columns 
+  # Move location column to front  
   columns = ['station_location'] + list(df.columns)[:-1]
   df = df[columns]
 
   # Change datatypes
   df = df.apply(pd.to_numeric, errors='ignore')
 
-  ## (TO-DO) Check for NaN values from type transform 
-
-
-  ## ------ If no NaNs will be masked from source, safe to replace missing value designators ------ ## 
-
   # Replace missing value designators with NaN
   df.replace([-99999,-9999], np.nan, inplace=True) 
   df.replace({'crx_vn':{-9:np.nan}}, inplace=True)
-  df = df.filter(regex="^((?!soil).)*$") # almost all missing values
+  df = df.filter(regex="^((?!soil).)*$") # soil columns have almost all missing values
 
   # Create datetime columns
   df['utc_datetime'] = pd.to_datetime(df['utc_date'].astype(int).astype(str) + df['utc_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
@@ -155,32 +193,24 @@ def transformDF(rows:list, ti=None):
   # Drop old date and time columns 
   df.drop(['utc_date', 'utc_time', 'lst_date', 'lst_time'], axis=1, inplace=True)
 
-  # Reorder columns 
+  # Reorder columns after drop
   cols = ['station_location','wbanno','crx_vn','utc_datetime','lst_datetime'] + list(df.columns)[3:-2]
   df = df[cols]
 
-  # Add date-added column (utc)
-  df['date_added_utc'] = dt.datetime.utcnow() 
+  # Check for duplicates in key columns: 
+  duplicates = df.duplicated(subset=["station_location", "utc_datetime", "lst_datetime"], keep=False)
+  duplicate_rows = df[duplicates]
+  if not duplicate_rows.empty:
+    logger.warning(f"Warning: {len(duplicate_rows)} rows have duplicate values in location and time columns")
+    logger.warning(f"Dropping")
+    df.drop_duplicates(subset=['location', 'utc_datetime', 'lst_datetime'], inplace=True, ignore_index=True)
 
   # Write to .csv
-  # XCOM Pull: `update_range` from XCOM created by 'getNewFileUrls'
-  # update_range = ti.xcom_pull(key="update_range", task_id="getNewFileURLs")
-  update_range = ti.xcom_pull(key="update_range", dag_id="uscrn_dag", task_ids="getNewFileURLs")
-  df.to_csv(f"{DIR_NAME}/data/uscrn_updates/{update_range[0]}-{update_range[1]}.csv", index=False)
-
+  df.to_csv(f"{DIR_NAME}/data/uscrn_updates.csv", index=False)
 
 @task
-def uploadBQ(ti=None):
-  """Upload latest uscrn_update .csv file to BigQuery"""
-
-  # Set credentials
-  key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-  credentials = service_account.Credentials.from_service_account_file(
-   key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"],
-  )
-
-  # Create client
-  client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
+def load_staging_table():
+  """Upload uscrn_updates.csv file to BigQuery"""
 
   # Set schema and job_config
   schema = [
@@ -211,7 +241,7 @@ def uploadBQ(ti=None):
     bigquery.SchemaField("sur_temp_min_flag", "STRING", mode="NULLABLE"), 
     bigquery.SchemaField("rh_hr_avg", "FLOAT", mode="NULLABLE"), 
     bigquery.SchemaField("rh_hr_avg_flag", "STRING", mode="NULLABLE"), 
-    bigquery.SchemaField("date_added_utc", "DATETIME", mode="REQUIRED")
+    bigquery.SchemaField("date_added", "DATETIME", mode="REQUIRED")
   ]
 
   jc = bigquery.LoadJobConfig(
@@ -219,54 +249,46 @@ def uploadBQ(ti=None):
     skip_leading_rows=1,
     autodetect=False,
     schema=schema,
-    create_disposition="CREATE_NEVER",
-    write_disposition="WRITE_APPEND"   
+    create_disposition="CREATE_IF_NEEDED",
+    write_disposition="WRITE_TRUNCATE"   
   )
  
   # Set target table in BigQuery
-  full_table_id = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+  full_table_id = f"{PROJECT_ID}.{DATASET_ID}.{STAGING_TABLE_ID}"
     
   # Read file to dataframe first -- direct loading creating schema issues
-
-  update_range = ti.xcom_pull(key="update_range", dag_id="uscrn_dag", task_ids="getNewFileURLs")
-  file_path = f"{DIR_NAME}/data/uscrn_updates/{update_range[0]}-{update_range[1]}.csv"
-  df = pd.read_csv(file_path)
+  df = pd.read_csv(f"{DIR_NAME}/data/uscrn_updates.csv", index=False)
 
   # Upload 
-  job = client.load_table_from_dataframe(df, full_table_id, job_config=jc)
+  job = bq_client.load_table_from_dataframe(df, full_table_id, job_config=jc)
   job.result()
   
   # Log result 
-  print(f"Loaded {df.size} rows and {len(df.columns)} columns")
+  logger.info(f"Loaded {df.size} rows and {len(df.columns)} columns into {full_table_id}")
 
 @task
-def appendLocal(ti=None):
-  """Append latest uscrn_update .csv file to local copy of uscrn.csv"""
-
-  update_range = ti.xcom_pull(key="update_range", dag_id="uscrn_dag", task_ids="getNewFileURLs")
-  file_path = f"{DIR_NAME}/data/uscrn_updates/{update_range[0]}-{update_range[1]}.csv"
-
-  updates_df=pd.read_csv(file_path)
-  updates_df.to_csv(f"{DIR_NAME}/data/uscrn.csv", mode="a", header=False, index=False)
-
+def insert_table() -> None:
+  utils.insert_table(f"{PROJECT_ID}.{DATASET_ID}.{MAIN_TABLE_ID}")
 ## ---------- DEFINING DAG ---------- ## 
 @dag(
-   schedule_interval="@once",
-   start_date=dt.datetime.utcnow(),
+   schedule_interval=INTERVAL,
+   start_date=START,
    catchup=False,
    default_view='graph',
    is_paused_upon_creation=True,
 )
 def uscrn_dag():
     
-    t1 = lastAdded()
-    t2 = getNewFileURLs(t1)
-    t3 = getUpdates(t2)
-    t4 = transformDF(t3)
-    t5 = uploadBQ()
-    t6 = appendLocal()
+    t1 = check_domain()
+    t2 = check_last_added()
+    t3 = get_new_file_urls(t2)
 
-    t1 >> t2 >> t3 >> t4 >> [t5, t6]
+    # t3 = getUpdates(t2)
+    # t4 = transform_df(t3)
+    # t5 = uploadBQ()
+    # t6 = appendLocal()
+
+    t1 >> [t2,t3] # >> t4 >> [t5, t6]
 
 dag = uscrn_dag()
 

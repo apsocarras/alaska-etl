@@ -7,7 +7,11 @@
 
 ETL webcraping pipeline to compare NWS forecasts against data gathered by the US Climate Research Council (USCRN) throughout Alaska.
 
-_This repo contains and builds off my work from a [team project](https://github.com/apsocarras/team-week3) at [Epicodus](https://www.epicodus.com/)._
+### Live [Kaggle Dataset]()
+
+![kaggle-dataset-thumbnail]()
+
+### Live [Dashboard]()
 
 ![dashboard](img/alaska.gif)
 
@@ -15,44 +19,54 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 
 ### _**Technologies Used**_ 
 * Airflow 
-* Google Cloud Platform (BigQuery, Looker Studio)
+* Google Cloud Platform 
+  * BigQuery, Cloud Functions, Cloud Scheduler, Looker Studio
 * Python (Pandas, Beautiful Soup)
 * SQL
-
+  
 ## Project Structure 
 ```bash
-├── notebooks
-│   ├── uscrn_scrape.ipynb 
-│   └── uscrn_scrape.py     
-├── airflow
-│   ├── airflow.sh            # see install instructions 
-│   ├── docker-compose.yaml   # see install instructions 
+├── airflow                   
 │   ├── dags
-│   │   ├── nws_dag.py        # scrapes/uploads updates from NWS     
-│   │   ├── uscrn_dag.py      # same for USCRN
-│   │   └── utils
-│   │       └── utils.py   
-│   └── data
-│       ├── nws_updates    
-│       ├── uscrn_updates  
-│       ├── sources.yaml      # URLs to data sources  
-│       └── bq-config.yaml    # Name of your BQ project    
+│   │   ├── config
+│   │   │    ├── gcp-config.yaml  # Set GCP info
+│   │   │    └── sources.yaml     # URLs to data sources      
+│   │   ├── data
+│   │   ├── utils
+│   │   │    └── utils.py 
+│   │   ├── nws_dag.py             
+│   │   ├── uscrn_dag.py
+│   │   └── uscrn_wind_dag.py # wind data stored separately
+|   ├── logs    
+|   └── plugins 
 ├── img
-├── .gitignore
-├── requirements.txt
-└── README.md
+├── notebooks
+│   ├── 1_uscrn_scrape.ipynb
+│   ├── 2_nws_update.ipynb
+│   ├── 3_gcf_export.ipynb
+│   └── uscrn_scrape.py          
+├── README.md
+└── requirements.txt
 ```
-`./notebooks/uscrn_scrape.ipynb` &nbsp;- &nbsp; Explains and contains code to scrape, transform, and upload the main USCRN data as well as supplemental data on column headers and descriptions.  
+`./notebooks/1_uscrn_scrape.ipynb` &nbsp;- &nbsp; Explains and contains code to scrape, transform, save, and upload the main USCRN data from the hourly database and the wind data from the subhourly database. `uscrn_scrape.py` is a helper script to scrape, transform, and download the hourly data. 
 
-`./notebooks/uscrn_scrape.py` &nbsp; - &nbsp; Contains a python script to scrape all currently available data from the USCRN database. For a faster download, run this script separately to scrape the main dataset rather than the code in the notebook.
+`./notebooks/2_nws_update.ipynb` &nbsp;- &nbsp; Shows how to scrape weekly forecast data from the NWS.  
+
+`./notebooks/3_gcf_export.ipynb` &nbsp;- &nbsp; Explains how to migrate our three update DAGs to Google Cloud Functions.
 
 ## Data Sources
 [USCRN Hourly Historical Weather Data](https://www.ncei.noaa.gov/pub/data/uscrn/products/hourly02/): This page contains hourly weather data from the U.S. Climate Reference Network / U.S. Regional Climate Reference Network (USCRN/USRCRN) stored in text files.
+
+[USCRN Subhourly Historical Weather Data](https://www.ncei.noaa.gov/pub/data/uscrn/products/subhourly01/): This page contains sub-hourly weather data from the same USCRN stations taken every five minutes. This database is used to access the USCRN's wind data, which have not been aggregated into the hourly database...for some reason.
+
 
 [NWS Forecasts](https://forecast.weather.gov/MapClick.php?lat=60.7506&lon=-160.5006&unit=0&lg=english&FcstType=digital): The National Weather Service has forecast offices in Fairbanks and Anchorage which provide hourly forecasts by coordinate location in AK. These are available in 48-Hour blocks up to four days out, stored in a tabular format. 
   
 
 ## Setup/Installation Requirements
+
+These instructions are for setting up Airflow to work with the scripts in `airflow/dags/`. If you'd prefer to try out Google Cloud Functions, follow the instructions in `./notebooks/3_gcf_export.ipynb` 
+
 ```bash 
 # Create and activate virtual environment
 virtualenv -p python3.7 venv 
@@ -85,15 +99,13 @@ echo -e "AIRFLOW_UID=$(id -u)\nAIRFLOW_GID=0" > .env
 curl -LfO 'https://airflow.apache.org/docs/apache-airflow/2.3.2/airflow.sh'
 
 ```
-Prior to initializing Airflow in Docker, you will need to [create a project](https://cloud.google.com/resource-manager/docs/creating-managing-projects) and an associated [service account](https://cloud.google.com/iam/docs/creating-managing-service-accounts) in BigQuery. After downloading the account's credential file, you can configure your `docker-compose.yaml` to connect to BigQuery. 
-
+Prior to initializing Airflow in Docker, you will need to [create a project](https://cloud.google.com/resource-manager/docs/creating-managing-projects) and an associated [service account](https://cloud.google.com/iam/docs/creating-managing-service-accounts) in BigQuery. After downloading the account's credential file, you can configure `docker-compose.yaml` to mount your directories and connect to BigQuery:
 ```yaml 
   GOOGLE_APPLICATION_CREDENTIALS: /google_creds/<name-of-your-creds-file>.json
 volumes:
   - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
   - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
   - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-  - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
   - </path/to/your/creds/directory>:/google_creds
 ```
 After opening Docker Desktop (or starting docker [via CLI](https://docs.docker.com/config/daemon/start/)): 
@@ -103,10 +115,11 @@ After opening Docker Desktop (or starting docker [via CLI](https://docs.docker.c
 docker compose up airflow-init 
 docker compose up 
 ```
-Lastly, change `bq-config.yaml` to match your GCP project information
+Lastly, change `gcp-config.yaml` to match your GCP project information
 
 ```yaml
 project-id: <your-project-id>
+dataset-id: <your-dataset-id>
 credentials: </path/to/your/creds/directory>
 ```
 Be sure to have your Docker container up before running any of the DAGs. The files in `notebooks` do not require the container to be active, however.
@@ -117,6 +130,8 @@ Be sure to have your Docker container up before running any of the DAGs. The fil
 
 
 ## License
+
+_This repo contains and builds off my work from a [team project](https://github.com/apsocarras/team-week3) at [Epicodus](https://www.epicodus.com/). No work from my teammates has been included here (modified or unmodified)._
 
 MIT License
 
