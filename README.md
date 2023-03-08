@@ -1,17 +1,15 @@
 # Alaskan Weather Data _(alaska-etl)_
 
-### "How accurate is the National Weather Service?"
-
 #### By [Alejandro Socarras](https://alexsocarras.com)
 
 
 ETL webcraping pipeline to compare NWS forecasts against data gathered by the US Climate Research Council (USCRN) throughout Alaska.
 
-### Live [Kaggle Dataset]()
+### [Kaggle Dataset](https://kaggle.com/datasets/ff6a921d217f62c84e321972757799f994b994bbecc4226dfc83226f208fdeac)
 
-![kaggle-dataset-thumbnail]()
+![kaggle-dataset-thumbnail](./img/kaggle_thumbnail.png)
 
-### Live [Dashboard]()
+### [Dashboard](https://lookerstudio.google.com/reporting/9b38dc5c-0b64-4ab0-9359-45382aa11f19/page/JICHD)
 
 ![dashboard](img/alaska.gif)
 
