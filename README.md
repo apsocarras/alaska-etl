@@ -1,17 +1,15 @@
 # Alaskan Weather Data _(alaska-etl)_
 
-### "How accurate is the National Weather Service?"
-
 #### By [Alejandro Socarras](https://alexsocarras.com)
 
 
 ETL webcraping pipeline to compare NWS forecasts against data gathered by the US Climate Research Council (USCRN) throughout Alaska.
 
-### Live [Kaggle Dataset]()
+### [Kaggle Dataset](https://kaggle.com/datasets/ff6a921d217f62c84e321972757799f994b994bbecc4226dfc83226f208fdeac)
 
-![kaggle-dataset-thumbnail]()
+![kaggle-dataset-thumbnail](./img/kaggle_thumbnail.png)
 
-### Live [Dashboard]()
+### [Dashboard](https://lookerstudio.google.com/reporting/9b38dc5c-0b64-4ab0-9359-45382aa11f19/page/JICHD)
 
 ![dashboard](img/alaska.gif)
 
@@ -37,8 +35,8 @@ _[Dashboard Presentation](https://lookerstudio.google.com/u/0/reporting/3d8306ba
 │   │   ├── nws_dag.py             
 │   │   ├── uscrn_dag.py
 │   │   └── uscrn_wind_dag.py # wind data stored separately
-|   ├── logs    
-|   └── plugins 
+│   ├── logs    # set setup/install
+│   └── plugins 
 ├── img
 ├── notebooks
 │   ├── 1_uscrn_scrape.ipynb
@@ -115,11 +113,12 @@ After opening Docker Desktop (or starting docker [via CLI](https://docs.docker.c
 docker compose up airflow-init 
 docker compose up 
 ```
-Lastly, change `gcp-config.yaml` to match your GCP project information
+Lastly, change `gcp-config.yaml` to match your GCP project information (click [here](https://cloud.google.com/bigquery/docs/locations) for information on Google server locations).
 
 ```yaml
 project-id: <your-project-id>
 dataset-id: <your-dataset-id>
+location: <your-project-location> # e.g. us-east4
 credentials: </path/to/your/creds/directory>
 ```
 Be sure to have your Docker container up before running any of the DAGs. The files in `notebooks` do not require the container to be active, however.

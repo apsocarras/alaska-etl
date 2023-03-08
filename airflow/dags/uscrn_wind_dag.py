@@ -82,14 +82,13 @@ def check_domain() -> None:
     utils.check_connection(domain_url="https://ncei.noaa.gov", logger=logger)
 
 @task
-def get_latest_utc_datetime() -> int: # Integer representation of datetime
-  """Reads/returns latest 'utc_datetime' value from wind table
-  
+def get_update_cutoff() -> int: # Integer representation of datetime
+  """
   Args:
     None 
   
   Returns: 
-    last_update (int): Integer
+    last_update (int): Integer repr. of earliest hour get_updates() should retrieve updates for 
   """
   
   query = f"""
@@ -101,13 +100,13 @@ def get_latest_utc_datetime() -> int: # Integer representation of datetime
   result = query_job.result()
 
   row = next(result)
-  latest_datetime = row['utc_datetime']
+  latest_datetime = row['utc_datetime'] + dt.timedelta(hours=1)
   latest_date = dt.datetime.strftime(latest_datetime, format="%Y%m%d")
   latest_hour= dt.datetime.strftime(latest_datetime, format="%H%M")
 
-  latest_utc_datetime = int(latest_date + latest_hour)
+  update_cutoff = int(latest_date + latest_hour)
 
-  return latest_utc_datetime
+  return update_cutoff
 
 @task 
 def get_wind_file_urls() -> list:
@@ -130,7 +129,7 @@ def get_wind_file_urls() -> list:
   return file_urls
 
 @task
-def get_updates(latest_utc_datetime:int, file_urls:list) -> None:
+def get_updates(update_cutoff:int, file_urls:list) -> None:
   """Scrape new wind data and write to .csv 
   
   Args: 
@@ -152,7 +151,7 @@ def get_updates(latest_utc_datetime:int, file_urls:list) -> None:
     # Iterate backwards from end of list, stopping when date is prior to last_bq_update
     for i in range(len(lines)-1, -1, -1):
       # end loop when old data is reached 
-      if int(lines[i][1] + lines[i][2]) <= latest_utc_datetime:
+      if int(lines[i][1] + lines[i][2]) <= update_cutoff:
         break 
       # log rows with erroneous wind data
       elif float(lines[i][-2]) < 0 or lines[i][-1] == "3": 
@@ -255,7 +254,7 @@ def insert_to_main_table() -> None:
 def uscrn_wind_dag():
   
   t1 = check_domain()
-  t2 = get_latest_utc_datetime()
+  t2 = get_update_cutoff()
   t3 = get_wind_file_urls()
   t4 = get_updates(t2,t3)
   t5 = transform_updates(t4)
