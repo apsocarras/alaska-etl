@@ -46,7 +46,7 @@ def insert_table(full_table_id:str, logger:Logger, bq_client:bigquery.Client) ->
 
   insert_query=f"""
     INSERT INTO {full_table_id} 
-    SELECT *, CURRENT_TIMESTAMP() as date_added
+    SELECT *, CURRENT_TIMESTAMP() as date_added_utc
     FROM {full_table_id}_staging 
     """
 
@@ -59,7 +59,7 @@ def insert_table(full_table_id:str, logger:Logger, bq_client:bigquery.Client) ->
     create_query = f"""
       CREATE TABLE {full_table_id}
       AS
-      SELECT *, CURRENT_TIMESTAMP() as date_added
+      SELECT *, CURRENT_TIMESTAMP() as date_added_utc
       FROM {full_table_id}_staging
     """
     query_job = bq_client.query(create_query)

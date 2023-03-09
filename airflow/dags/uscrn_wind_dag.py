@@ -100,7 +100,7 @@ def get_update_cutoff() -> int: # Integer representation of datetime
   result = query_job.result()
 
   row = next(result)
-  latest_datetime = row['utc_datetime'] + dt.timedelta(hours=1)
+  latest_datetime = row['utc_datetime'] # + dt.timedelta(hours=1)
   latest_date = dt.datetime.strftime(latest_datetime, format="%Y%m%d")
   latest_hour= dt.datetime.strftime(latest_datetime, format="%H%M")
 
