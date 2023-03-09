@@ -89,24 +89,24 @@ logger.addHandler(handler)
 @task
 def check_domain () -> None:
     """Checks connection to USCRN main domain"""
-    utils.check_connection(domain="https://ncei.noaa.gov", logger=logger)
+    utils.check_connection(domain_url="https://ncei.noaa.gov", logger=logger)
 
 
 @task
 def check_last_added() -> str: # String representation of datetime
-  """Reads/returns latest 'date_added' value from main table"""
+  """Reads/returns latest 'date_added_utc' value from main table"""
   
   query = f"""
-  SELECT date_added 
+  SELECT date_added_utc 
   FROM {DATASET_ID}.{MAIN_TABLE_ID}
-  ORDER BY date_added DESC LIMIT 1
+  ORDER BY date_added_utc DESC LIMIT 1
   """
 
   query_job = bq_client.query(query)
   result = query_job.result()
 
   row = next(result)
-  last_added = row['date_added']
+  last_added = row['date_added_utc']
   last_added_str = dt.datetime.strftime(last_added, format="%Y-%m-%d %H:%M:%S.%f")
 
   return last_added_str
@@ -134,15 +134,14 @@ def get_new_file_urls(last_added:str) -> list:
 def get_updates(new_file_urls:list) -> list: 
   """Scrape data from list of new urls, store and return as list of lists"""
 
-  wbanno_codes = set(locations_df['wbanno'])
+  wbanno_codes = set(locations_df['wbanno'].astype(str))
   rows = []
   for url in new_file_urls:
     # Log the current URL being processed
     logger.info(f'Processing URL: {url}')
     # Scrape data from URL
-    result = requests.get(url)
-    soup = BeautifulSoup(result.content, "html.parser") 
-    soup_lines = str(soup).strip().splitlines()[3:]
+    soup = utils.get_soup(url, delay=1)
+    soup_lines = str(soup).strip().splitlines()
     ak_rows = [re.split('\s+', line) for line in soup_lines if line[0:5] in wbanno_codes] 
     rows.extend(ak_rows)
 
@@ -155,14 +154,11 @@ def get_updates(new_file_urls:list) -> list:
 def transform_df(rows:list, ti=None): 
   """Read rows from getUpdates(), cast to dataframe, transform, write to csv"""
   
-  # Get column headers: 
-  columns = list(column_descriptions['col_name'])
-  # For reference: 
-  ## columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_time','crx_vn','longitude','latitude',
-  ##'t_calc','t_hr_avg','t_max','t_min','p_calc','solarad','solarad_flag','solarad_max','solarad_max_flag','solarad_min',
-  ##'solarad_min_flag','sur_temp_type','sur_temp','sur_temp_flag','sur_temp_max','sur_temp_max_flag','sur_temp_min',
-  ##'sur_temp_min_flag','rh_hr_avg','rh_hr_avg_flag','soil_moisture_5','soil_moisture_10','soil_moisture_20',
-  ##'soil_moisture_50','soil_moisture_100','soil_temp_5','soil_temp_10','soil_temp_20','soil_temp_50','soil_temp_100']  
+  columns = ['station_location','wbanno','utc_date','utc_time','lst_date','lst_time','crx_vn','longitude','latitude',
+  't_calc','t_hr_avg','t_max','t_min','p_calc','solarad','solarad_flag','solarad_max','solarad_max_flag','solarad_min',
+  'solarad_min_flag','sur_temp_type','sur_temp','sur_temp_flag','sur_temp_max','sur_temp_max_flag','sur_temp_min',
+  'sur_temp_min_flag','rh_hr_avg','rh_hr_avg_flag','soil_moisture_5','soil_moisture_10','soil_moisture_20',
+  'soil_moisture_50','soil_moisture_100','soil_temp_5','soil_temp_10','soil_temp_20','soil_temp_50','soil_temp_100']  
 
   # Create dataframe from rows 
   df = pd.DataFrame(rows, columns=columns[1:]) # exclude station_location -- have yet to add by joining on wbanno
@@ -181,11 +177,12 @@ def transform_df(rows:list, ti=None):
   # Change datatypes
   df = df.apply(pd.to_numeric, errors='ignore')
 
-  # Replace missing value designators with NaN
-  df.replace([-99999,-9999], np.nan, inplace=True) 
-  df.replace({'crx_vn':{-9:np.nan}}, inplace=True)
-  df = df.filter(regex="^((?!soil).)*$") # soil columns have almost all missing values
+  # Convert to fahrenheit
+  df[['t_calc','t_hr_avg', 't_max', 't_min']].apply(lambda celsius: np.where(celsius > -90, celsius * 9/5 + 32, celsius))
 
+  # Drop soil columns -- have almost all missing values
+  df = df.filter(regex="^((?!soil).)*$") 
+  
   # Create datetime columns
   df['utc_datetime'] = pd.to_datetime(df['utc_date'].astype(int).astype(str) + df['utc_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
   df['lst_datetime'] = pd.to_datetime(df['lst_date'].astype(int).astype(str) + df['lst_time'].astype(int).astype(str).str.zfill(4), format='%Y%m%d%H%M')
@@ -241,7 +238,7 @@ def load_staging_table():
     bigquery.SchemaField("sur_temp_min_flag", "STRING", mode="NULLABLE"), 
     bigquery.SchemaField("rh_hr_avg", "FLOAT", mode="NULLABLE"), 
     bigquery.SchemaField("rh_hr_avg_flag", "STRING", mode="NULLABLE"), 
-    bigquery.SchemaField("date_added", "DATETIME", mode="REQUIRED")
+    bigquery.SchemaField("date_added_utc", "DATETIME", mode="REQUIRED")
   ]
 
   jc = bigquery.LoadJobConfig(
@@ -276,19 +273,19 @@ def insert_table() -> None:
    catchup=False,
    default_view='graph',
    is_paused_upon_creation=True,
+  max_active_runs=1
 )
 def uscrn_dag():
     
     t1 = check_domain()
     t2 = check_last_added()
     t3 = get_new_file_urls(t2)
+    t4 = get_updates(t3)
+    t5 = transform_df(t4)
+    t6 = load_staging_table()
+    t7 = insert_table()
 
-    # t3 = getUpdates(t2)
-    # t4 = transform_df(t3)
-    # t5 = uploadBQ()
-    # t6 = appendLocal()
-
-    t1 >> [t2,t3] # >> t4 >> [t5, t6]
+    t1 >> t2 >> t3  >> t4 >> t5  >> t6 >> t7
 
 dag = uscrn_dag()
 
