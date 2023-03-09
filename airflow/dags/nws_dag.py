@@ -197,7 +197,7 @@ def insert_table() -> None:
   
   insert_query=f"""
     INSERT INTO {DATASET_ID}.{MAIN_TABLE_ID} 
-    SELECT *, CURRENT_TIMESTAMP() as date_added
+    SELECT *, CURRENT_TIMESTAMP() as date_added_utc
     FROM {DATASET_ID}.{STAGING_TABLE_ID}
     """
 
@@ -209,7 +209,7 @@ def insert_table() -> None:
     create_query = f"""
       CREATE TABLE {DATASET_ID}.{MAIN_TABLE_ID}
       AS
-      SELECT *, CURRENT_TIMESTAMP() as date_added
+      SELECT *, CURRENT_TIMESTAMP() as date_added_utc
       FROM {DATASET_ID}.{STAGING_TABLE_ID}
     """
     query_job = bq_client.query(create_query)

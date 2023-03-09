@@ -8,3 +8,4 @@ venv/
 __pycache__/
 todo.txt
 nws_scrape2.ipynb
+img/looker-img/

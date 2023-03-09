@@ -11,7 +11,6 @@ from utils.utils import get_file_urls, get_station_location
 def process_rows(file_urls, row_limit, output_file) -> None:
   """
   Processes a batch of rows from a list of URLs to extract weather station data and save it to a CSV file.
-
   Args:
     file_urls (list): A list of URLs where weather station data can be found.
     row_limit (int): The maximum number of rows to process per batch.
@@ -47,8 +46,10 @@ def process_rows(file_urls, row_limit, output_file) -> None:
   df = pd.DataFrame(rows, columns=columns)
 
   ####  Transform dataframe  #### 
-  df.replace([-99999,-9999], np.nan, inplace=True) 
-  df.replace({'crx_vn':{-9:np.nan}}, inplace=True)
+
+  # Convert to fahrenheit 
+  df = df.apply(pd.to_numeric, errors='ignore')
+  df[['t_calc','t_hr_avg', 't_max', 't_min']].apply(lambda celsius: np.where(celsius > -90, celsius * 9/5 + 32, celsius))
 
   # Drop soil columns -- vast majority have missing data 
   df = df.filter(regex="^((?!soil).)*$")
@@ -71,7 +72,7 @@ def process_rows(file_urls, row_limit, output_file) -> None:
 
   # Write dataframe to CSV
   hdr = False if os.path.isfile(output_file) else True
-  df.to_csv("../data/uscrn.csv", mode="a+", header=hdr, index=False)
+  df.to_csv(output_file, mode="a+", header=hdr, index=False)
   
   # if os.path.isfile(output_file):
   #     df.to_csv(output_file, mode='a', header=False, index=False)
@@ -90,7 +91,7 @@ if __name__ == "__main__":
 
   file_urls = get_file_urls("hourly02") # 'hourly02' -- main data directory for USCRN
 
-  output_file = "../airflow/dags/data/uscrn.csv"
+  output_file = "/home/alex/portfolio/projects/alaska-etl/airflow/dags/data/uscrn.csv"
 
   if os.path.isfile(output_file):
     raise Exception(f"{output_file} already exists")
